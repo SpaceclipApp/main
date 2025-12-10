@@ -4,7 +4,7 @@ Authentication API routes
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile, Request
 from pydantic import BaseModel
 
 from models.user import (
@@ -51,10 +51,12 @@ async def check_email(request: CheckEmailRequest):
 
 
 @router.post("/register")
-async def register(request: RegisterRequest):
+async def register(request: RegisterRequest, http_request: Request):
     """Register new user with email/password"""
     try:
-        user, token = await auth_service.register(request)
+        ip_address = http_request.client.host if http_request.client else None
+        user_agent = http_request.headers.get("user-agent")
+        user, token = await auth_service.register(request, ip_address=ip_address, user_agent=user_agent)
         return {
             "user": UserProfile(
                 id=user.id,
@@ -70,10 +72,12 @@ async def register(request: RegisterRequest):
 
 
 @router.post("/login")
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, http_request: Request):
     """Login with email/password"""
     try:
-        user, token = await auth_service.login_email(request)
+        ip_address = http_request.client.host if http_request.client else None
+        user_agent = http_request.headers.get("user-agent")
+        user, token = await auth_service.login_email(request, ip_address=ip_address, user_agent=user_agent)
         return {
             "user": UserProfile(
                 id=user.id,
@@ -96,13 +100,44 @@ async def get_wallet_nonce():
 
 
 @router.post("/wallet/login")
-async def login_wallet(request: WalletLoginRequest):
+async def login_wallet(request: WalletLoginRequest, http_request: Request):
     """Login with Web3 wallet signature"""
     try:
-        user, token = await auth_service.login_wallet(request)
+        ip_address = http_request.client.host if http_request.client else None
+        user_agent = http_request.headers.get("user-agent")
+        user, token = await auth_service.login_wallet(request, ip_address=ip_address, user_agent=user_agent)
         return {
             "user": UserProfile(
                 id=user.id,
+                name=user.name,
+                avatar_url=user.avatar_url,
+                created_at=user.created_at,
+            ),
+            "token": token
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.post("/refresh")
+async def refresh_session(authorization: Optional[str] = Header(None)):
+    """Refresh session token"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Extract token from "Bearer <token>"
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = parts[1]
+    
+    try:
+        user, token = await auth_service.refresh_session(token)
+        return {
+            "user": UserProfile(
+                id=user.id,
+                email=user.email,
                 name=user.name,
                 avatar_url=user.avatar_url,
                 created_at=user.created_at,

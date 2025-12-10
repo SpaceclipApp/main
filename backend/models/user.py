@@ -23,6 +23,7 @@ class User(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
     auth_provider: AuthProvider = AuthProvider.EMAIL
+    password_hash: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -64,6 +65,7 @@ class UserSession(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
+    last_active_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class LoginRequest(BaseModel):

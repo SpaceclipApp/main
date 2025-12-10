@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 USERS_FILE = settings.upload_dir / "users.json"
 SESSIONS_FILE = settings.upload_dir / "sessions.json"
 PROJECTS_FILE = settings.upload_dir / "user_projects.json"
-PASSWORD_HASHES_FILE = settings.upload_dir / "password_hashes.json"
 
 
 class AuthService:
@@ -36,7 +35,6 @@ class AuthService:
         self._users: dict[str, User] = {}
         self._sessions: dict[str, UserSession] = {}
         self._projects: dict[str, Project] = {}
-        self._password_hashes: dict[str, str] = {}
         self._load_data()
     
     def _load_data(self):
@@ -53,10 +51,6 @@ class AuthService:
             if PROJECTS_FILE.exists():
                 data = json.loads(PROJECTS_FILE.read_text())
                 self._projects = {k: Project(**v) for k, v in data.items()}
-            
-            if PASSWORD_HASHES_FILE.exists():
-                data = json.loads(PASSWORD_HASHES_FILE.read_text())
-                self._password_hashes = data
         except Exception as e:
             logger.error(f"Failed to load auth data: {e}")
     
@@ -75,10 +69,6 @@ class AuthService:
                 {k: v.model_dump() for k, v in self._projects.items()},
                 default=str
             ))
-            PASSWORD_HASHES_FILE.write_text(json.dumps(
-                self._password_hashes,
-                default=str
-            ))
         except Exception as e:
             logger.error(f"Failed to save auth data: {e}")
     
@@ -90,7 +80,7 @@ class AuthService:
         """Generate secure session token"""
         return secrets.token_urlsafe(32)
     
-    async def register(self, request: RegisterRequest) -> tuple[User, str]:
+    async def register(self, request: RegisterRequest, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> tuple[User, str]:
         """Register new user with email/password"""
         # Check if email exists
         for user in self._users.values():
@@ -98,15 +88,13 @@ class AuthService:
                 raise ValueError("Email already registered")
         
         # Create user
+        password_hash = self._hash_password(request.password)
         user = User(
             email=request.email,
             name=request.name or request.email.split('@')[0],
             auth_provider=AuthProvider.EMAIL,
+            password_hash=password_hash,
         )
-        
-        # Store password hash
-        password_hash = self._hash_password(request.password)
-        self._password_hashes[user.id] = password_hash
         
         self._users[user.id] = user
         
@@ -115,7 +103,10 @@ class AuthService:
         session = UserSession(
             user_id=user.id,
             token=token,
-            expires_at=datetime.utcnow() + timedelta(days=30)
+            expires_at=datetime.utcnow() + timedelta(days=7),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            last_active_at=datetime.utcnow()
         )
         self._sessions[token] = session
         
@@ -131,7 +122,7 @@ class AuthService:
         
         return user, token
     
-    async def login_email(self, request: LoginRequest) -> tuple[User, str]:
+    async def login_email(self, request: LoginRequest, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> tuple[User, str]:
         """Login with email/password"""
         # Find user by email
         user = None
@@ -144,11 +135,10 @@ class AuthService:
             raise ValueError("Invalid email or password")
         
         # Verify password
-        stored_hash = self._password_hashes.get(user.id)
-        if not stored_hash:
+        if not user.password_hash:
             raise ValueError("Invalid email or password")
         
-        if not bcrypt.checkpw(request.password.encode('utf-8'), stored_hash.encode('utf-8')):
+        if not bcrypt.checkpw(request.password.encode('utf-8'), user.password_hash.encode('utf-8')):
             raise ValueError("Invalid email or password")
         
         # Create session
@@ -156,14 +146,17 @@ class AuthService:
         session = UserSession(
             user_id=user.id,
             token=token,
-            expires_at=datetime.utcnow() + timedelta(days=30)
+            expires_at=datetime.utcnow() + timedelta(days=7),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            last_active_at=datetime.utcnow()
         )
         self._sessions[token] = session
         self._save_data()
         
         return user, token
     
-    async def login_wallet(self, request: WalletLoginRequest) -> tuple[User, str]:
+    async def login_wallet(self, request: WalletLoginRequest, ip_address: Optional[str] = None, user_agent: Optional[str] = None) -> tuple[User, str]:
         """Login with Web3 wallet signature"""
         # Verify signature (simplified - in production, use web3.py)
         # The message should be a nonce that we generated
@@ -196,10 +189,35 @@ class AuthService:
         session = UserSession(
             user_id=user.id,
             token=token,
-            expires_at=datetime.utcnow() + timedelta(days=30)
+            expires_at=datetime.utcnow() + timedelta(days=7),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            last_active_at=datetime.utcnow()
         )
         self._sessions[token] = session
         self._save_data()
+        
+        return user, token
+    
+    async def refresh_session(self, token: str) -> tuple[User, str]:
+        """Refresh an existing session by extending its expiration"""
+        session = self._sessions.get(token)
+        if not session:
+            raise ValueError("Invalid or expired session")
+        
+        if session.expires_at < datetime.utcnow():
+            del self._sessions[token]
+            self._save_data()
+            raise ValueError("Session expired")
+        
+        # Extend expiration to 7 days from now
+        session.expires_at = datetime.utcnow() + timedelta(days=7)
+        session.last_active_at = datetime.utcnow()
+        self._save_data()
+        
+        user = self._users.get(session.user_id)
+        if not user:
+            raise ValueError("User not found")
         
         return user, token
     
@@ -213,6 +231,10 @@ class AuthService:
             del self._sessions[token]
             self._save_data()
             return None
+        
+        # Update last_active_at
+        session.last_active_at = datetime.utcnow()
+        self._save_data()
         
         return self._users.get(session.user_id)
     

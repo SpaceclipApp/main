@@ -29,6 +29,101 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Add response interceptor for 401 handling with refresh
+let isRefreshing = false
+let failedQueue: Array<{
+  resolve: (value?: any) => void
+  reject: (reason?: any) => void
+}> = []
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error)
+    } else {
+      prom.resolve(token)
+    }
+  })
+  failedQueue = []
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+
+    // If error is 401 and we haven't tried refreshing yet
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // If already refreshing, queue this request
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject })
+        }).then(token => {
+          originalRequest.headers.Authorization = `Bearer ${token}`
+          return api(originalRequest)
+        }).catch(err => {
+          return Promise.reject(err)
+        })
+      }
+
+      originalRequest._retry = true
+      isRefreshing = true
+
+      try {
+        // Get current token
+        const authData = localStorage.getItem('spaceclip-auth')
+        if (!authData) {
+          throw new Error('No auth data')
+        }
+
+        const { state } = JSON.parse(authData)
+        if (!state?.token) {
+          throw new Error('No token')
+        }
+
+        // Attempt refresh
+        const refreshResponse = await api.post('/auth/refresh', {}, {
+          headers: {
+            Authorization: `Bearer ${state.token}`
+          }
+        })
+
+        const { user, token: newToken } = refreshResponse.data
+
+        // Update auth store
+        if (typeof window !== 'undefined') {
+          const authStore = await import('../store/auth')
+          authStore.useAuthStore.getState().login(user, newToken)
+        }
+
+        // Update token in original request
+        originalRequest.headers.Authorization = `Bearer ${newToken}`
+
+        // Process queued requests
+        processQueue(null, newToken)
+
+        // Retry original request
+        return api(originalRequest)
+      } catch (refreshError) {
+        // Refresh failed, process queue with error
+        processQueue(refreshError, null)
+
+        // Logout user
+        if (typeof window !== 'undefined') {
+          const authStore = await import('../store/auth')
+          authStore.useAuthStore.getState().logout()
+        }
+
+        return Promise.reject(refreshError)
+      } finally {
+        isRefreshing = false
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
 // Types
 export interface MediaInfo {
   id: string
