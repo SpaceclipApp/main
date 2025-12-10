@@ -1,0 +1,30 @@
+# FastAPI and server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# Media processing
+yt-dlp>=2024.12.0
+ffmpeg-python>=0.2.0
+pydub>=0.25.0
+
+# AI/ML
+openai-whisper>=20231117
+ollama>=0.1.6
+
+# Speaker diarization (optional but recommended)
+# Uncomment to enable accurate speaker detection:
+# pyannote.audio>=3.1.0
+# torch>=2.0.0
+
+# Utilities
+aiofiles>=23.2.0
+httpx>=0.26.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+email-validator>=2.0.0
+
+# Twitter/X Spaces (using twspace-dl alternative approach)
+requests>=2.31.0
+

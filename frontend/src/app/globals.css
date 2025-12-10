@@ -1,0 +1,168 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-space-grotesk: 'Space Grotesk', system-ui, sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  * {
+    @apply border-void-700;
+  }
+
+  body {
+    @apply bg-void-950 text-star-white font-display;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-void-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-void-600 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-nebula-purple;
+  }
+}
+
+@layer components {
+  /* Cosmic button styles */
+  .btn-cosmic {
+    @apply relative px-6 py-3 rounded-xl font-medium overflow-hidden;
+    @apply bg-gradient-to-r from-nebula-purple to-nebula-violet;
+    @apply text-white shadow-neon-purple;
+    @apply transition-all duration-300 ease-out;
+    @apply hover:scale-105 hover:shadow-[0_0_30px_rgba(124,58,237,0.6)];
+    @apply active:scale-100;
+  }
+
+  .btn-cosmic::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent;
+    @apply -translate-x-full;
+    animation: shimmer 2s infinite;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 rounded-xl font-medium;
+    @apply border-2 border-nebula-purple/50 text-nebula-violet;
+    @apply bg-transparent backdrop-blur-sm;
+    @apply transition-all duration-300;
+    @apply hover:border-nebula-purple hover:bg-nebula-purple/10;
+    @apply hover:shadow-neon-purple;
+  }
+
+  /* Glass card effect */
+  .glass-card {
+    @apply bg-void-800/50 backdrop-blur-xl;
+    @apply border border-void-600/50;
+    @apply rounded-2xl;
+  }
+
+  /* Cosmic input */
+  .input-cosmic {
+    @apply w-full px-4 py-3 rounded-xl;
+    @apply bg-void-900/80 border border-void-600;
+    @apply text-star-white placeholder-void-600;
+    @apply outline-none transition-all duration-300;
+    @apply focus:border-nebula-purple focus:shadow-neon-purple;
+  }
+
+  /* Waveform animation */
+  .waveform-bar {
+    @apply bg-gradient-to-t from-nebula-purple to-nebula-violet;
+    animation: wave var(--duration, 1s) ease-in-out infinite;
+    animation-delay: var(--delay, 0s);
+  }
+}
+
+@layer utilities {
+  /* Text gradient */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-nebula-violet via-nebula-pink to-star-cyan;
+  }
+
+  /* Glow effect */
+  .glow-purple {
+    filter: drop-shadow(0 0 20px rgba(124, 58, 237, 0.5));
+  }
+
+  .glow-cyan {
+    filter: drop-shadow(0 0 20px rgba(6, 182, 212, 0.5));
+  }
+
+  /* Star background */
+  .stars {
+    background-image: 
+      radial-gradient(2px 2px at 20px 30px, rgba(248, 250, 252, 0.8), transparent),
+      radial-gradient(2px 2px at 40px 70px, rgba(248, 250, 252, 0.6), transparent),
+      radial-gradient(1px 1px at 90px 40px, rgba(248, 250, 252, 0.9), transparent),
+      radial-gradient(2px 2px at 130px 80px, rgba(248, 250, 252, 0.5), transparent),
+      radial-gradient(1px 1px at 160px 120px, rgba(248, 250, 252, 0.7), transparent),
+      radial-gradient(1.5px 1.5px at 200px 50px, rgba(248, 250, 252, 0.8), transparent),
+      radial-gradient(1px 1px at 250px 100px, rgba(248, 250, 252, 0.6), transparent),
+      radial-gradient(2px 2px at 300px 150px, rgba(248, 250, 252, 0.4), transparent);
+    background-size: 350px 200px;
+    animation: twinkle 8s ease-in-out infinite;
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  @keyframes wave {
+    0%, 100% { transform: scaleY(0.3); }
+    50% { transform: scaleY(1); }
+  }
+}
+
+/* Custom animations */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Nebula background effect */
+.nebula-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.nebula-bg::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(circle at 30% 30%, rgba(124, 58, 237, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 70% 60%, rgba(236, 72, 153, 0.1) 0%, transparent 40%),
+    radial-gradient(circle at 50% 80%, rgba(6, 182, 212, 0.1) 0%, transparent 40%);
+  animation: nebula-drift 30s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes nebula-drift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(5%, -5%) rotate(5deg); }
+  66% { transform: translate(-5%, 5%) rotate(-5deg); }
+}
+
+
+
