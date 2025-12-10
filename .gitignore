@@ -56,6 +56,6 @@ htmlcov/
 # Misc
 *.bak
 .vercel
-
+docs/
 
 
