@@ -59,6 +59,47 @@ ollama pull llama3.2
 ollama serve
 ```
 
+## Starting and Stopping Servers
+
+### Start Servers
+
+**Option 1: Use the dev script (Recommended)**
+```bash
+./scripts/dev.sh
+```
+This starts both backend and frontend automatically. Press `Ctrl+C` to stop all services.
+
+**Option 2: Start manually**
+
+Backend (in one terminal):
+```bash
+cd backend
+source venv/bin/activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Frontend (in another terminal):
+```bash
+cd frontend
+npm run dev
+```
+
+### Stop Servers
+
+**If using the dev script:**
+- Press `Ctrl+C` in the terminal running the script
+
+**If running manually:**
+- Press `Ctrl+C` in each terminal, or
+- Kill processes by port:
+```bash
+# Kill both backend and frontend
+lsof -ti:8000,3000 | xargs kill -9
+
+# Or use pkill
+pkill -f "uvicorn main:app" && pkill -f "npm run dev"
+```
+
 ## Environment Variables
 
 Create `.env` files in both `frontend/` and `backend/` directories:
@@ -79,6 +120,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 ## License
 
 MIT
+
 
 
 
