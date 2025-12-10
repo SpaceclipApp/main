@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import secrets
+import bcrypt
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 USERS_FILE = settings.upload_dir / "users.json"
 SESSIONS_FILE = settings.upload_dir / "sessions.json"
 PROJECTS_FILE = settings.upload_dir / "user_projects.json"
+PASSWORD_HASHES_FILE = settings.upload_dir / "password_hashes.json"
 
 
 class AuthService:
@@ -34,6 +36,7 @@ class AuthService:
         self._users: dict[str, User] = {}
         self._sessions: dict[str, UserSession] = {}
         self._projects: dict[str, Project] = {}
+        self._password_hashes: dict[str, str] = {}
         self._load_data()
     
     def _load_data(self):
@@ -50,6 +53,10 @@ class AuthService:
             if PROJECTS_FILE.exists():
                 data = json.loads(PROJECTS_FILE.read_text())
                 self._projects = {k: Project(**v) for k, v in data.items()}
+            
+            if PASSWORD_HASHES_FILE.exists():
+                data = json.loads(PASSWORD_HASHES_FILE.read_text())
+                self._password_hashes = data
         except Exception as e:
             logger.error(f"Failed to load auth data: {e}")
     
@@ -68,13 +75,16 @@ class AuthService:
                 {k: v.model_dump() for k, v in self._projects.items()},
                 default=str
             ))
+            PASSWORD_HASHES_FILE.write_text(json.dumps(
+                self._password_hashes,
+                default=str
+            ))
         except Exception as e:
             logger.error(f"Failed to save auth data: {e}")
     
     def _hash_password(self, password: str) -> str:
-        """Hash password using SHA-256 with salt"""
-        salt = "spaceclip_salt_v1"  # In production, use per-user salt
-        return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        """Hash password using bcrypt with automatic salting"""
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     def _generate_token(self) -> str:
         """Generate secure session token"""
@@ -94,11 +104,11 @@ class AuthService:
             auth_provider=AuthProvider.EMAIL,
         )
         
-        # Store password hash (in production, store separately)
-        user_data = user.model_dump()
-        user_data['password_hash'] = self._hash_password(request.password)
+        # Store password hash
+        password_hash = self._hash_password(request.password)
+        self._password_hashes[user.id] = password_hash
         
-        self._users[user.id] = User(**{k: v for k, v in user_data.items() if k != 'password_hash'})
+        self._users[user.id] = user
         
         # Create session
         token = self._generate_token()
@@ -133,8 +143,13 @@ class AuthService:
         if not user:
             raise ValueError("Invalid email or password")
         
-        # Verify password (simplified - in production, check stored hash)
-        # For now, accept any password in dev mode
+        # Verify password
+        stored_hash = self._password_hashes.get(user.id)
+        if not stored_hash:
+            raise ValueError("Invalid email or password")
+        
+        if not bcrypt.checkpw(request.password.encode('utf-8'), stored_hash.encode('utf-8')):
+            raise ValueError("Invalid email or password")
         
         # Create session
         token = self._generate_token()

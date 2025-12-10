@@ -28,3 +28,6 @@ email-validator>=2.0.0
 # Twitter/X Spaces (using twspace-dl alternative approach)
 requests>=2.31.0
 
+# Password hashing
+bcrypt>=4.0.0
+
