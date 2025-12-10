@@ -4,13 +4,16 @@ SpaceClip Backend - FastAPI Application
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from api import router
-from api.auth_routes import router as auth_router
+from api import auth_routes
 
 # Configure logging
 logging.basicConfig(
@@ -41,6 +44,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Share limiter instance with auth routes
+auth_routes.limiter = limiter
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +67,7 @@ app.mount("/uploads", StaticFiles(directory=str(settings.upload_dir)), name="upl
 
 # API routes
 app.include_router(router, prefix="/api")
-app.include_router(auth_router, prefix="/api")
+app.include_router(auth_routes.router, prefix="/api")
 
 
 @app.get("/")

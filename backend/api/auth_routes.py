@@ -6,6 +6,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile, Request
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from models.user import (
     User, Project, UserProfile,
@@ -16,6 +18,9 @@ from services.auth_service import auth_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Rate limiter - will be set from app state in main.py
+limiter = Limiter(key_func=get_remote_address)
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[User]:
@@ -44,13 +49,15 @@ class CheckEmailRequest(BaseModel):
 
 
 @router.post("/check-email")
-async def check_email(request: CheckEmailRequest):
+#@limiter.limit("5/minute")
+async def check_email(request: CheckEmailRequest, http_request: Request):
     """Check if email already exists"""
     exists = await auth_service.email_exists(request.email)
     return {"exists": exists}
 
 
 @router.post("/register")
+#@limiter.limit("5/minute")
 async def register(request: RegisterRequest, http_request: Request):
     """Register new user with email/password"""
     try:
@@ -72,6 +79,7 @@ async def register(request: RegisterRequest, http_request: Request):
 
 
 @router.post("/login")
+#@limiter.limit("5/minute")
 async def login(request: LoginRequest, http_request: Request):
     """Login with email/password"""
     try:
