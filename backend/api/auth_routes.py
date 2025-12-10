@@ -8,12 +8,14 @@ from fastapi import APIRouter, HTTPException, Header, Depends, File, UploadFile,
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user import (
     User, Project, UserProfile,
     LoginRequest, RegisterRequest, WalletLoginRequest,
     CreateProjectRequest
 )
+from models.database import get_db_session
 from services.auth_service import auth_service
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
 
 
-async def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[User]:
+async def db_session_dependency() -> AsyncSession:
+    """FastAPI dependency to get a database session."""
+    async for session in get_db_session():
+        yield session
+
+
+async def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(db_session_dependency)
+) -> Optional[User]:
     """Dependency to get current user from auth header"""
     if not authorization:
         return None
@@ -34,7 +45,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Optio
         return None
     
     token = parts[1]
-    return await auth_service.get_user_by_token(token)
+    return await auth_service.get_user_by_token(db, token)
 
 
 async def require_auth(user: Optional[User] = Depends(get_current_user)) -> User:
@@ -50,20 +61,30 @@ class CheckEmailRequest(BaseModel):
 
 @router.post("/check-email")
 #@limiter.limit("5/minute")
-async def check_email(request: CheckEmailRequest, http_request: Request):
+async def check_email(
+    request: CheckEmailRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Check if email already exists"""
-    exists = await auth_service.email_exists(request.email)
+    exists = await auth_service.email_exists(db, request.email)
     return {"exists": exists}
 
 
 @router.post("/register")
 #@limiter.limit("5/minute")
-async def register(request: RegisterRequest, http_request: Request):
+async def register(
+    request: RegisterRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Register new user with email/password"""
     try:
         ip_address = http_request.client.host if http_request.client else None
         user_agent = http_request.headers.get("user-agent")
-        user, token = await auth_service.register(request, ip_address=ip_address, user_agent=user_agent)
+        user, token = await auth_service.register(
+            db, request, ip_address=ip_address, user_agent=user_agent
+        )
         return {
             "user": UserProfile(
                 id=user.id,
@@ -80,12 +101,18 @@ async def register(request: RegisterRequest, http_request: Request):
 
 @router.post("/login")
 #@limiter.limit("5/minute")
-async def login(request: LoginRequest, http_request: Request):
+async def login(
+    request: LoginRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Login with email/password"""
     try:
         ip_address = http_request.client.host if http_request.client else None
         user_agent = http_request.headers.get("user-agent")
-        user, token = await auth_service.login_email(request, ip_address=ip_address, user_agent=user_agent)
+        user, token = await auth_service.login_email(
+            db, request, ip_address=ip_address, user_agent=user_agent
+        )
         return {
             "user": UserProfile(
                 id=user.id,
@@ -108,12 +135,18 @@ async def get_wallet_nonce():
 
 
 @router.post("/wallet/login")
-async def login_wallet(request: WalletLoginRequest, http_request: Request):
+async def login_wallet(
+    request: WalletLoginRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Login with Web3 wallet signature"""
     try:
         ip_address = http_request.client.host if http_request.client else None
         user_agent = http_request.headers.get("user-agent")
-        user, token = await auth_service.login_wallet(request, ip_address=ip_address, user_agent=user_agent)
+        user, token = await auth_service.login_wallet(
+            db, request, ip_address=ip_address, user_agent=user_agent
+        )
         return {
             "user": UserProfile(
                 id=user.id,
@@ -128,7 +161,10 @@ async def login_wallet(request: WalletLoginRequest, http_request: Request):
 
 
 @router.post("/refresh")
-async def refresh_session(authorization: Optional[str] = Header(None)):
+async def refresh_session(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Refresh session token"""
     if not authorization:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -141,7 +177,7 @@ async def refresh_session(authorization: Optional[str] = Header(None)):
     token = parts[1]
     
     try:
-        user, token = await auth_service.refresh_session(token)
+        user, token = await auth_service.refresh_session(db, token)
         return {
             "user": UserProfile(
                 id=user.id,
@@ -157,17 +193,24 @@ async def refresh_session(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/logout")
-async def logout(user: User = Depends(require_auth), authorization: str = Header()):
+async def logout(
+    user: User = Depends(require_auth),
+    authorization: str = Header(),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Logout current user"""
     token = authorization.split()[1]
-    await auth_service.logout(token)
+    await auth_service.logout(db, token)
     return {"status": "logged out"}
 
 
 @router.get("/me")
-async def get_current_user_profile(user: User = Depends(require_auth)):
+async def get_current_user_profile(
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Get current user profile"""
-    projects = await auth_service.get_user_projects(user.id)
+    projects = await auth_service.get_user_projects(db, user.id)
     return {
         "user": UserProfile(
             id=user.id,
@@ -184,16 +227,24 @@ async def get_current_user_profile(user: User = Depends(require_auth)):
 
 
 @router.get("/projects")
-async def get_user_projects(user: User = Depends(require_auth)):
+async def get_user_projects(
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Get all projects for current user"""
-    projects = await auth_service.get_user_projects(user.id)
+    projects = await auth_service.get_user_projects(db, user.id)
     return {"projects": projects}
 
 
 @router.post("/projects")
-async def create_project(request: CreateProjectRequest, user: User = Depends(require_auth)):
+async def create_project(
+    request: CreateProjectRequest,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Create a new project"""
     project = await auth_service.create_project(
+        db,
         user_id=user.id,
         name=request.name,
         description=request.description,
@@ -203,36 +254,52 @@ async def create_project(request: CreateProjectRequest, user: User = Depends(req
 
 
 @router.delete("/projects/{project_id}")
-async def delete_project(project_id: str, user: User = Depends(require_auth)):
+async def delete_project(
+    project_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Delete a project permanently"""
-    success = await auth_service.delete_project(user.id, project_id)
+    success = await auth_service.delete_project(db, user.id, project_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "deleted"}
 
 
 @router.post("/projects/{project_id}/archive")
-async def archive_project(project_id: str, user: User = Depends(require_auth)):
+async def archive_project(
+    project_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Archive a project (soft delete)"""
-    success = await auth_service.archive_project(user.id, project_id)
+    success = await auth_service.archive_project(db, user.id, project_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "archived"}
 
 
 @router.post("/projects/{project_id}/unarchive")
-async def unarchive_project(project_id: str, user: User = Depends(require_auth)):
+async def unarchive_project(
+    project_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Unarchive a project"""
-    success = await auth_service.unarchive_project(user.id, project_id)
+    success = await auth_service.unarchive_project(db, user.id, project_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "active"}
 
 
 @router.post("/projects/{project_id}/clear-clips")
-async def clear_project_clips(project_id: str, user: User = Depends(require_auth)):
+async def clear_project_clips(
+    project_id: str,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Clear all generated clips from a project"""
-    success = await auth_service.clear_project_clips(user.id, project_id)
+    success = await auth_service.clear_project_clips(db, user.id, project_id)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "cleared"}
@@ -241,7 +308,8 @@ async def clear_project_clips(project_id: str, user: User = Depends(require_auth
 @router.post("/avatar")
 async def upload_avatar(
     file: UploadFile = File(...),
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(db_session_dependency)
 ):
     """Upload user avatar"""
     import uuid as uuid_lib
@@ -286,9 +354,9 @@ async def upload_avatar(
     if authorization:
         try:
             token = authorization.replace("Bearer ", "")
-            user = await auth_service.get_user_by_token(token)
+            user = await auth_service.get_user_by_token(db, token)
             if user:
-                await auth_service.update_user_avatar(user.id, avatar_url)
+                await auth_service.update_user_avatar(db, user.id, avatar_url)
         except Exception as e:
             logger.error(f"Failed to update user avatar: {e}")
     
@@ -351,5 +419,3 @@ async def get_wallet_nfts(wallet_address: str):
     except Exception as e:
         logger.error(f"Failed to fetch NFTs: {e}")
         return {"nfts": [], "error": "Could not fetch NFTs"}
-
-

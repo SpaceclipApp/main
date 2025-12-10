@@ -14,6 +14,9 @@ from slowapi.errors import RateLimitExceeded
 from config import settings
 from api import router
 from api import auth_routes
+from models.database import get_db_session, async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +24,20 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+async def db_session_dependency() -> AsyncSession:
+    """
+    FastAPI dependency to get a database session.
+    
+    Usage in routes:
+        @router.get("/example")
+        async def example(db: AsyncSession = Depends(db_session_dependency)):
+            # Use db session here
+            pass
+    """
+    async for session in get_db_session():
+        yield session
 
 
 @asynccontextmanager
@@ -32,9 +49,25 @@ async def lifespan(app: FastAPI):
     logger.info(f"   Ollama host: {settings.ollama_host}")
     logger.info(f"   Whisper model: {settings.whisper_model}")
     
+    # Test database connection
+    logger.info("   Testing database connection...")
+    try:
+        async with async_engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result.scalar()
+        logger.info("   ✅ Database connection successful")
+        logger.info(f"   Database URL: {settings.database_url.split('@')[1] if '@' in settings.database_url else 'configured'}")
+    except Exception as e:
+        logger.error(f"   ❌ Database connection failed: {e}")
+        # Re-raise to prevent app from starting with broken DB
+        raise
+    
     yield
     
     logger.info("SpaceClip Backend shutting down...")
+    # Close database engine
+    await async_engine.dispose()
+    logger.info("   Database connections closed")
 
 
 app = FastAPI(
