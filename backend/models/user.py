@@ -1,11 +1,12 @@
 """
 User and Project models for multi-user support
 """
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import Optional
 from datetime import datetime
 from enum import Enum
 import uuid
+import re
 
 
 class AuthProvider(str, Enum):
@@ -79,6 +80,21 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = None
+    
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password strength"""
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters and include a letter and a number.")
+        
+        has_letter = bool(re.search(r'[a-zA-Z]', v))
+        has_digit = bool(re.search(r'[0-9]', v))
+        
+        if not has_letter or not has_digit:
+            raise ValueError("Password must be at least 8 characters and include a letter and a number.")
+        
+        return v
 
 
 class WalletLoginRequest(BaseModel):

@@ -13,6 +13,21 @@ interface SignInModalProps {
 
 type AuthStep = 'email' | 'password' | 'new-password'
 
+function validatePassword(password: string): string | null {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters and include a letter and a number."
+  }
+  
+  const hasLetter = /[a-zA-Z]/.test(password)
+  const hasDigit = /[0-9]/.test(password)
+  
+  if (!hasLetter || !hasDigit) {
+    return "Password must be at least 8 characters and include a letter and a number."
+  }
+  
+  return null
+}
+
 export function SignInModal({ isOpen, onClose }: SignInModalProps) {
   const [step, setStep] = useState<AuthStep>('email')
   const [email, setEmail] = useState('')
@@ -20,6 +35,7 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [passwordError, setPasswordError] = useState<string | null>(null)
   const [isNewUser, setIsNewUser] = useState(false)
   
   const { login } = useAuthStore()
@@ -101,10 +117,13 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
       setError('Please create a password')
       return
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters')
+    
+    const validationError = validatePassword(password)
+    if (validationError) {
+      setPasswordError(validationError)
       return
     }
+    
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       return
@@ -112,6 +131,7 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
     
     setIsLoading(true)
     setError('')
+    setPasswordError(null)
     
     try {
       const response = await fetch(`http://localhost:8000/api/auth/register`, {
@@ -150,6 +170,7 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
     setPassword('')
     setConfirmPassword('')
     setError('')
+    setPasswordError(null)
     setIsNewUser(false)
   }
   
@@ -163,6 +184,7 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
     setPassword('')
     setConfirmPassword('')
     setError('')
+    setPasswordError(null)
   }
   
   return (
@@ -350,12 +372,21 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
                         <input
                           type="password"
                           value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="At least 6 characters"
+                          onChange={(e) => {
+                            const newPassword = e.target.value
+                            setPassword(newPassword)
+                            setPasswordError(validatePassword(newPassword))
+                          }}
+                          placeholder="At least 8 characters with a letter and number"
                           autoFocus
                           className="w-full pl-11 pr-4 py-3 rounded-xl bg-void-800 border border-void-600 text-star-white placeholder:text-star-white/40 focus:outline-none focus:border-nebula-purple transition-colors"
                         />
                       </div>
+                      {passwordError && (
+                        <p className="text-amber-400 text-sm mt-2">
+                          {passwordError}
+                        </p>
+                      )}
                     </div>
                     
                     <div>
@@ -380,7 +411,7 @@ export function SignInModal({ isOpen, onClose }: SignInModalProps) {
                     
                     <button
                       type="submit"
-                      disabled={isLoading}
+                      disabled={isLoading || !password || validatePassword(password) !== null}
                       className="w-full py-3 rounded-xl bg-nebula-purple hover:bg-nebula-violet text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       {isLoading ? (
