@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("./uploads")
     output_dir: Path = Path("./outputs")
     
+    # Database
+    database_url: str = "postgresql+asyncpg://spaceclip:spaceclip@localhost:5432/spaceclip"
+    
     # Server
     host: str = "0.0.0.0"
     port: int = 8000

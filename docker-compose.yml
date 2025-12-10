@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.9'
 
 services:
   # Backend API
@@ -13,12 +13,14 @@ services:
       - WHISPER_MODEL=base
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
+      - DATABASE_URL=postgresql+asyncpg://spaceclip:spaceclip@db:5432/spaceclip
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/outputs:/app/outputs
       - whisper_models:/root/.cache/whisper
     depends_on:
       - ollama
+      - db
     restart: unless-stopped
 
   # Frontend
@@ -51,10 +53,24 @@ services:
     #           count: 1
     #           capabilities: [gpu]
 
+  # PostgreSQL database
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: spaceclip
+      POSTGRES_PASSWORD: spaceclip
+      POSTGRES_DB: spaceclip
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   ollama_data:
   whisper_models:
-
+  postgres_data:
+  
 
 
 
