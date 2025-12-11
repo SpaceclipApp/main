@@ -5,7 +5,7 @@ Authentication API routes
 
 Spaceclip uses an opaque session-token authentication system.
 - Session tokens are stored in the database (sessions table).
-- Backend verifies tokens by DB lookups, NOT by cryptographic claims.
+- Backend verifies tokens by DB lookups AND HMAC signatures for integrity.
 - Do NOT replace with JWT-based login. See docs/AUTH_SYSTEM.md for details.
 """
 import logging
@@ -25,6 +25,7 @@ from models.user import (
 from models.database import get_db_session
 from services.auth_service import auth_service
 from config import settings, get_public_url
+from logging_context import user_id_var
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -41,6 +42,7 @@ async def db_session_dependency() -> AsyncSession:
 
 async def get_current_user(
     authorization: Optional[str] = Header(None),
+    request: Request = None,
     db: AsyncSession = Depends(db_session_dependency)
 ) -> Optional[User]:
     """Dependency to get current user from auth header"""
@@ -53,7 +55,14 @@ async def get_current_user(
         return None
     
     token = parts[1]
-    return await auth_service.get_user_by_token(db, token)
+    user = await auth_service.get_user_by_token(db, token)
+    
+    # Set user_id in request state and context for logging
+    if user and request:
+        request.state.user_id = user.id
+        user_id_var.set(str(user.id))
+    
+    return user
 
 
 async def require_auth(user: Optional[User] = Depends(get_current_user)) -> User:

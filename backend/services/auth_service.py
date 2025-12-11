@@ -8,8 +8,8 @@ Uses PostgreSQL via repository layer
 Spaceclip uses an opaque session-token authentication system.
 
 - Session tokens are stored in the database (sessions table).
-- Backend verifies tokens by DB lookups, NOT by cryptographic claims.
-- Tokens are generated randomly and validated only server-side.
+- Backend verifies tokens by DB lookups AND HMAC signatures.
+- Tokens are generated randomly with HMAC signatures for integrity.
 
 Do NOT replace the existing session-token system with JWT-based login.
 Do NOT remove or bypass the sessions table.
@@ -26,6 +26,8 @@ Opaque DB-backed sessions remain the source of truth.
 import logging
 import secrets
 import bcrypt
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -41,6 +43,7 @@ from models.session_model import SessionModel
 from models.password_model import PasswordHashModel
 from models.project_model import ProjectModel
 from repositories import UserRepository, SessionRepository, ProjectRepository
+from config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -117,8 +120,58 @@ class AuthService:
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
     
     def _generate_token(self) -> str:
-        """Generate secure session token"""
-        return secrets.token_urlsafe(32)
+        """
+        Generate secure session token with HMAC signature.
+        
+        Token format: {random_token}:{hmac_signature}
+        - random_token: 32-byte URL-safe random string
+        - hmac_signature: HMAC-SHA256 of the token using secret_key
+        
+        Returns:
+            Opaque token string with embedded HMAC signature
+        """
+        # Generate random token
+        random_token = secrets.token_urlsafe(32)
+        
+        # Create HMAC signature using secret_key
+        signature = hmac.new(
+            settings.secret_key.encode('utf-8'),
+            random_token.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Return token with signature: {token}:{signature}
+        return f"{random_token}:{signature}"
+    
+    def _validate_token(self, token: str) -> bool:
+        """
+        Validate token HMAC signature.
+        
+        Args:
+            token: Token string in format {random_token}:{hmac_signature}
+            
+        Returns:
+            True if HMAC signature is valid, False otherwise
+        """
+        try:
+            # Split token into parts
+            if ':' not in token:
+                return False
+            
+            random_token, provided_signature = token.rsplit(':', 1)
+            
+            # Recompute HMAC signature
+            expected_signature = hmac.new(
+                settings.secret_key.encode('utf-8'),
+                random_token.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Use constant-time comparison to prevent timing attacks
+            return hmac.compare_digest(provided_signature, expected_signature)
+        except Exception:
+            # If any error occurs (malformed token, etc.), invalid
+            return False
     
     # -------------------------------------------------------------------------
     # Registration
@@ -265,6 +318,11 @@ class AuthService:
     
     async def refresh_session(self, db: AsyncSession, token: str) -> tuple[User, str]:
         """Refresh an existing session by extending its expiration"""
+        # First validate HMAC signature
+        if not self._validate_token(token):
+            raise ValueError("Invalid or expired session")
+        
+        # Then check database
         session_model = await self.session_repo.get_by_token(db, token)
         if not session_model:
             raise ValueError("Invalid or expired session")
@@ -285,6 +343,11 @@ class AuthService:
     
     async def get_user_by_token(self, db: AsyncSession, token: str) -> Optional[User]:
         """Get user from session token"""
+        # First validate HMAC signature
+        if not self._validate_token(token):
+            return None
+        
+        # Then check database
         session_model = await self.session_repo.get_by_token(db, token)
         if not session_model:
             return None
@@ -304,6 +367,13 @@ class AuthService:
     
     async def logout(self, db: AsyncSession, token: str) -> bool:
         """Logout user by invalidating session"""
+        # Validate HMAC signature first (optional - allows cleanup of invalid tokens)
+        # But we'll still try to delete even if HMAC is invalid for cleanup purposes
+        if not self._validate_token(token):
+            # Token is invalid, but try to clean up from DB anyway
+            await self.session_repo.delete_by_token(db, token)
+            return False
+        
         return await self.session_repo.delete_by_token(db, token)
     
     # -------------------------------------------------------------------------

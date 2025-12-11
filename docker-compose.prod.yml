@@ -1,0 +1,156 @@
+version: '3.9'
+
+# Production Docker Compose configuration for SpaceClip
+# Usage: docker-compose -f docker-compose.prod.yml --env-file .env up -d
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: spaceclip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-spaceclip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-spaceclip}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-spaceclip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spaceclip-network
+    # No exposed ports - only accessible via internal network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spaceclip-backend
+    restart: unless-stopped
+    environment:
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      
+      # Redis (optional)
+      - REDIS_URL=${REDIS_URL:-}
+      
+      # Frontend
+      - FRONTEND_URL=${FRONTEND_URL}
+      - PUBLIC_API_URL=${PUBLIC_API_URL:-}
+      
+      # CORS
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      
+      # Ollama
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      
+      # Whisper
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      
+      # Storage
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_outputs:/app/outputs
+      - whisper_models:/root/.cache/whisper
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spaceclip-network
+    # No exposed ports - only accessible via reverse proxy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: spaceclip-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    depends_on:
+      - backend
+    networks:
+      - spaceclip-network
+    # No exposed ports - only accessible via reverse proxy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Ollama for local LLM (optional in production)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: spaceclip-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - spaceclip-network
+    # No exposed ports - only accessible via internal network
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Reverse proxy placeholder (nginx example)
+  # Replace with your preferred reverse proxy (nginx, Caddy, Traefik, etc.)
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: spaceclip-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - frontend
+  #     - backend
+  #   networks:
+  #     - spaceclip-network
+
+networks:
+  spaceclip-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_outputs:
+    driver: local
+  whisper_models:
+    driver: local
+  ollama_data:
+    driver: local

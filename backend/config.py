@@ -60,6 +60,12 @@ class Settings(BaseSettings):
         description="Server port"
     )
     
+    # Logging
+    log_level: str = Field(
+        default="INFO",
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+    
     # Public API URL (for generating absolute URLs to backend resources)
     # If not set, will be derived from frontend_url or host/port
     public_api_url: Optional[str] = Field(
@@ -186,6 +192,14 @@ def validate_settings(settings: Settings) -> None:
     
     if not settings.frontend_url:
         errors.append("FRONTEND_URL is required but not set")
+    
+    # SECRET_KEY is required in production and staging (for HMAC token validation)
+    if settings.environment in ("production", "staging"):
+        if not settings.secret_key:
+            errors.append(
+                f"SECRET_KEY is required in {settings.environment} environment but not set. "
+                "Session tokens use HMAC signatures that require a secret key."
+            )
     
     # ALLOWED_ORIGINS is required in production and staging
     if settings.environment in ("production", "staging"):
