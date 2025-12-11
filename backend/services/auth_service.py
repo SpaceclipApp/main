@@ -388,9 +388,20 @@ class AuthService:
         if not project_model or str(project_model.user_id) != user_id:
             return False
         
-        # Clear clips from storage
-        from services.project_storage import project_storage
-        project_storage.clear_project_clips(project_id)
+        # Get all media for this project and clear their clips
+        from repositories.project_repository import media_repository, clip_repository
+        media_list = await media_repository.get_by_project_id(db, UUID(project_id))
+        
+        for media in media_list:
+            # Get clips to delete their files
+            clips = await clip_repository.get_by_media_id(db, media.id)
+            from pathlib import Path
+            for clip in clips:
+                clip_path = Path(clip.file_path)
+                if clip_path.exists():
+                    clip_path.unlink()
+            # Delete clips from database
+            await clip_repository.delete_by_media_id(db, media.id)
         
         # Clear media associations from database
         await self.project_repo.clear_project_media(db, UUID(project_id))

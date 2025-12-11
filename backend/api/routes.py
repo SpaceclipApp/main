@@ -8,8 +8,9 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models import (
@@ -23,6 +24,7 @@ from models import (
     ProcessingStatus,
     Platform,
 )
+from models.database import get_db_session
 from services import (
     media_downloader,
     transcription_service,
@@ -34,23 +36,29 @@ from services.project_storage import project_storage
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# In-memory project store (with disk persistence)
+# In-memory project store (with database persistence)
 projects: dict[str, ProjectState] = {}
 
 
-async def _save_project(media_id: str):
-    """Save project to disk"""
+async def db_session_dependency() -> AsyncSession:
+    """FastAPI dependency to get a database session."""
+    async for session in get_db_session():
+        yield session
+
+
+async def _save_project(db: AsyncSession, media_id: str):
+    """Save project to database"""
     if media_id in projects:
-        await project_storage.save_project(media_id, projects[media_id])
+        await project_storage.save_project(db, media_id, projects[media_id])
 
 
-async def _load_or_create_project(media_id: str) -> ProjectState:
-    """Load project from disk or memory"""
+async def _load_or_create_project(db: AsyncSession, media_id: str) -> ProjectState:
+    """Load project from database or memory"""
     if media_id in projects:
         return projects[media_id]
     
-    # Try loading from disk
-    loaded = await project_storage.load_project(media_id)
+    # Try loading from database
+    loaded = await project_storage.load_project(db, media_id)
     if loaded:
         projects[media_id] = loaded
         return loaded
@@ -61,7 +69,8 @@ async def _load_or_create_project(media_id: str) -> ProjectState:
 @router.post("/upload/file", response_model=MediaInfo)
 async def upload_file(
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(db_session_dependency)
 ):
     """Upload a media file (video or audio)"""
     # Validate file type
@@ -93,8 +102,8 @@ async def upload_file(
             status=ProcessingStatus.PENDING
         )
         
-        # Save to disk
-        await _save_project(media_info.id)
+        # Save to database
+        await _save_project(db, media_info.id)
         
         return media_info
         
@@ -107,7 +116,10 @@ async def upload_file(
 
 
 @router.post("/upload/url", response_model=MediaInfo)
-async def upload_from_url(request: MediaUploadRequest):
+async def upload_from_url(
+    request: MediaUploadRequest,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Download and process media from URL (YouTube, X Spaces, etc.)"""
     try:
         media_info = await media_downloader.download(request.url)
@@ -118,8 +130,8 @@ async def upload_from_url(request: MediaUploadRequest):
             status=ProcessingStatus.PENDING
         )
         
-        # Save to disk
-        await _save_project(media_info.id)
+        # Save to database
+        await _save_project(db, media_info.id)
         
         return media_info
         
@@ -132,10 +144,11 @@ async def upload_from_url(request: MediaUploadRequest):
 async def transcribe_media(
     media_id: str, 
     language: Optional[str] = None,
-    num_speakers: Optional[int] = None
+    num_speakers: Optional[int] = None,
+    db: AsyncSession = Depends(db_session_dependency)
 ):
     """Transcribe uploaded media with speaker detection"""
-    project = await _load_or_create_project(media_id)
+    project = await _load_or_create_project(db, media_id)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -153,15 +166,15 @@ async def transcribe_media(
         project.transcription = result
         project.status = ProcessingStatus.PENDING
         
-        # Save to disk
-        await _save_project(media_id)
+        # Save to database
+        await _save_project(db, media_id)
         
         return result
         
     except Exception as e:
         project.status = ProcessingStatus.ERROR
         project.error = str(e)
-        await _save_project(media_id)
+        await _save_project(db, media_id)
         logger.error(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -174,7 +187,8 @@ async def analyze_highlights(
     max_duration: float = 90.0,
     start_time: Optional[float] = None,
     end_time: Optional[float] = None,
-    append: bool = False
+    append: bool = False,
+    db: AsyncSession = Depends(db_session_dependency)
 ):
     """
     Analyze media for highlights using AI
@@ -187,7 +201,7 @@ async def analyze_highlights(
         end_time: Optional end time to analyze specific section
         append: If True, append new highlights to existing ones
     """
-    project = await _load_or_create_project(media_id)
+    project = await _load_or_create_project(db, media_id)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -233,23 +247,26 @@ async def analyze_highlights(
         
         project.status = ProcessingStatus.COMPLETE
         
-        # Save to disk
-        await _save_project(media_id)
+        # Save to database
+        await _save_project(db, media_id)
         
         return result
         
     except Exception as e:
         project.status = ProcessingStatus.ERROR
         project.error = str(e)
-        await _save_project(media_id)
+        await _save_project(db, media_id)
         logger.error(f"Analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/clips", response_model=list[ClipResult])
-async def create_clips(request: ClipRequest):
+async def create_clips(
+    request: ClipRequest,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Create clips for specified platforms"""
-    project = await _load_or_create_project(request.media_id)
+    project = await _load_or_create_project(db, request.media_id)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -277,8 +294,8 @@ async def create_clips(request: ClipRequest):
             results.append(clip)
             project.clips.append(clip)
         
-        # Save to disk
-        await _save_project(request.media_id)
+        # Save to database
+        await _save_project(db, request.media_id)
         
         return results
         
@@ -288,15 +305,18 @@ async def create_clips(request: ClipRequest):
 
 
 @router.get("/projects", response_model=list[dict])
-async def list_projects():
+async def list_projects(db: AsyncSession = Depends(db_session_dependency)):
     """List all saved projects"""
-    return await project_storage.list_projects()
+    return await project_storage.list_projects(db)
 
 
 @router.get("/projects/{media_id}", response_model=ProjectState)
-async def get_project(media_id: str):
+async def get_project(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Get full project state"""
-    project = await _load_or_create_project(media_id)
+    project = await _load_or_create_project(db, media_id)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -342,33 +362,45 @@ async def get_thumbnail(media_id: str):
 
 
 @router.delete("/projects/{media_id}")
-async def delete_project(media_id: str):
+async def delete_project(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency)
+):
     """Delete a project and its files"""
-    if media_id not in projects:
+    # Try to load from database first
+    project = await _load_or_create_project(db, media_id)
+    
+    if not project and media_id not in projects:
         raise HTTPException(status_code=404, detail="Media not found")
     
-    project = projects[media_id]
+    if not project:
+        project = projects.get(media_id)
     
-    # Delete media file
-    if project.media:
-        media_path = Path(project.media.file_path)
-        if media_path.exists():
-            media_path.unlink()
+    if project:
+        # Delete media file
+        if project.media:
+            media_path = Path(project.media.file_path)
+            if media_path.exists():
+                media_path.unlink()
+            
+            # Delete thumbnail
+            if project.media.thumbnail_path:
+                thumb_path = Path(project.media.thumbnail_path)
+                if thumb_path.exists():
+                    thumb_path.unlink()
         
-        # Delete thumbnail
-        if project.media.thumbnail_path:
-            thumb_path = Path(project.media.thumbnail_path)
-            if thumb_path.exists():
-                thumb_path.unlink()
+        # Delete clips
+        for clip in project.clips:
+            clip_path = Path(clip.file_path)
+            if clip_path.exists():
+                clip_path.unlink()
     
-    # Delete clips
-    for clip in project.clips:
-        clip_path = Path(clip.file_path)
-        if clip_path.exists():
-            clip_path.unlink()
+    # Delete from database
+    await project_storage.delete_project_async(db, media_id)
     
-    # Remove from store
-    del projects[media_id]
+    # Remove from in-memory store
+    if media_id in projects:
+        del projects[media_id]
     
     return {"status": "deleted"}
 
@@ -409,7 +441,8 @@ async def generate_caption(
 async def process_full(
     media_id: str,
     background_tasks: BackgroundTasks,
-    auto_clip: bool = True
+    auto_clip: bool = True,
+    db: AsyncSession = Depends(db_session_dependency)
 ):
     """
     Full processing pipeline:
@@ -417,60 +450,68 @@ async def process_full(
     2. Analyze highlights
     3. Optionally generate clips for top highlights
     """
-    if media_id not in projects:
+    project = await _load_or_create_project(db, media_id)
+    if not project:
         raise HTTPException(status_code=404, detail="Media not found")
     
     async def _process():
-        project = projects[media_id]
-        
-        try:
-            # Transcribe
-            project.status = ProcessingStatus.TRANSCRIBING
-            project.progress = 0.2
-            
-            transcription = await transcription_service.transcribe_with_speakers(
-                media_id=media_id,
-                file_path=Path(project.media.file_path)
-            )
-            project.transcription = transcription
-            project.progress = 0.5
-            
-            # Analyze
-            project.status = ProcessingStatus.ANALYZING
-            highlights = await highlight_detector.analyze(
-                media_id=media_id,
-                transcription=transcription
-            )
-            project.highlights = highlights
-            project.progress = 0.8
-            
-            # Auto-generate clips for top 3 highlights
-            if auto_clip and highlights.highlights:
-                for highlight in highlights.highlights[:3]:
-                    captions = [
-                        seg for seg in transcription.segments
-                        if seg.start >= highlight.start and seg.end <= highlight.end
-                    ]
-                    
-                    # Generate for common platforms
-                    for platform in [Platform.INSTAGRAM_REELS, Platform.TIKTOK]:
-                        clip = await clip_generator.create_clip(
-                            media=project.media,
-                            start=highlight.start,
-                            end=highlight.end,
-                            platform=platform,
-                            captions=captions,
-                            title=highlight.title
-                        )
-                        project.clips.append(clip)
-            
-            project.status = ProcessingStatus.COMPLETE
-            project.progress = 1.0
-            
-        except Exception as e:
-            project.status = ProcessingStatus.ERROR
-            project.error = str(e)
-            logger.error(f"Processing error: {e}")
+        # Get a fresh database session for background task
+        from models.database import get_db_session
+        async for bg_db in get_db_session():
+            try:
+                project = projects[media_id]
+                
+                # Transcribe
+                project.status = ProcessingStatus.TRANSCRIBING
+                project.progress = 0.2
+                
+                transcription = await transcription_service.transcribe_with_speakers(
+                    media_id=media_id,
+                    file_path=Path(project.media.file_path)
+                )
+                project.transcription = transcription
+                project.progress = 0.5
+                
+                # Analyze
+                project.status = ProcessingStatus.ANALYZING
+                highlights = await highlight_detector.analyze(
+                    media_id=media_id,
+                    transcription=transcription
+                )
+                project.highlights = highlights
+                project.progress = 0.8
+                
+                # Auto-generate clips for top 3 highlights
+                if auto_clip and highlights.highlights:
+                    for highlight in highlights.highlights[:3]:
+                        captions = [
+                            seg for seg in transcription.segments
+                            if seg.start >= highlight.start and seg.end <= highlight.end
+                        ]
+                        
+                        # Generate for common platforms
+                        for platform in [Platform.INSTAGRAM_REELS, Platform.TIKTOK]:
+                            clip = await clip_generator.create_clip(
+                                media=project.media,
+                                start=highlight.start,
+                                end=highlight.end,
+                                platform=platform,
+                                captions=captions,
+                                title=highlight.title
+                            )
+                            project.clips.append(clip)
+                
+                project.status = ProcessingStatus.COMPLETE
+                project.progress = 1.0
+                
+                # Save to database
+                await _save_project(bg_db, media_id)
+                
+            except Exception as e:
+                project.status = ProcessingStatus.ERROR
+                project.error = str(e)
+                logger.error(f"Processing error: {e}")
+                await _save_project(bg_db, media_id)
     
     # Run in background
     background_tasks.add_task(asyncio.create_task, _process())

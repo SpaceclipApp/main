@@ -13,6 +13,7 @@ from .database import Base
 if TYPE_CHECKING:
     from .user_model import UserModel
     from .media_project_model import MediaProjectModel
+    from .media_model import MediaModel
 
 
 class ProjectModel(Base):
@@ -43,5 +44,9 @@ class ProjectModel(Base):
     )
     media_projects: Mapped[list["MediaProjectModel"]] = relationship(
         "MediaProjectModel",
+        back_populates="project"
+    )
+    media: Mapped[list["MediaModel"]] = relationship(
+        "MediaModel",
         back_populates="project"
     )

@@ -12,6 +12,10 @@ from models.password_model import PasswordHashModel
 from models.session_model import SessionModel
 from models.project_model import ProjectModel
 from models.media_project_model import MediaProjectModel
+from models.media_model import MediaModel
+from models.transcription_model import TranscriptionModel, TranscriptSegmentModel
+from models.highlight_model import HighlightModel
+from models.clip_model import ClipModel
 
 # Import config for database URL
 from config import settings
