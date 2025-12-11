@@ -1,5 +1,11 @@
 """
 Session repository for database operations
+
+⚠️ AUTH SYSTEM DIRECTIVE — DO NOT MODIFY
+
+This repository manages the sessions table which is the source of truth for authentication.
+Do NOT bypass this table or replace it with stateless JWT validation.
+See docs/AUTH_SYSTEM.md for architecture details.
 """
 from uuid import UUID
 from datetime import datetime

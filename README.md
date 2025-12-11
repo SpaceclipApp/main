@@ -24,6 +24,28 @@ spaceclip/
 └── shared/            # Shared types and utilities
 ```
 
+## ⚠️ Authentication System Directive
+
+**IMPORTANT: SpaceClip uses an opaque session-token authentication system.**
+
+- Session tokens are stored in the database (`sessions` table)
+- Backend verifies tokens by DB lookups, **NOT** by cryptographic claims
+- Tokens are generated randomly and validated only server-side
+
+**Do NOT replace the existing session-token system with JWT-based login.**
+**Do NOT remove or bypass the sessions table.**
+**Do NOT introduce stateless authentication for primary sign-in.**
+
+JWTs may ONLY be introduced later as:
+- Optional, separate authentication for enterprise SSO (Google, Azure, Okta, etc.)
+- Short-lived access tokens layered on top of existing sessions
+- Verification-only tokens issued by external IdPs
+
+**Do NOT convert SpaceClip's internal auth system to JWTs.**
+**Opaque DB-backed sessions remain the source of truth.**
+
+See [`docs/AUTH_SYSTEM.md`](docs/AUTH_SYSTEM.md) for detailed architecture documentation.
+
 ## Quick Start
 
 ### Prerequisites

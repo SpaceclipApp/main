@@ -1,5 +1,12 @@
 """
 Authentication API routes
+
+⚠️ AUTH SYSTEM DIRECTIVE — DO NOT MODIFY
+
+Spaceclip uses an opaque session-token authentication system.
+- Session tokens are stored in the database (sessions table).
+- Backend verifies tokens by DB lookups, NOT by cryptographic claims.
+- Do NOT replace with JWT-based login. See docs/AUTH_SYSTEM.md for details.
 """
 import logging
 from typing import Optional
