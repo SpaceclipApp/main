@@ -14,11 +14,15 @@ from config import settings
 # Declarative base for models
 Base = declarative_base()
 
-# Create async engine
+# Create async engine with connection pool settings
 async_engine = create_async_engine(
     settings.database_url,
     echo=False,  # Set to True for SQL query logging in development
     future=True,
+    pool_size=5,  # Number of connections to maintain in the pool
+    max_overflow=10,  # Maximum number of connections to create beyond pool_size
+    pool_timeout=30,  # Seconds to wait before giving up on getting a connection
+    pool_recycle=1800,  # Seconds before recreating a connection (30 minutes)
 )
 
 # Create async session maker

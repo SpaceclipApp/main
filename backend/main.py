@@ -131,9 +131,23 @@ async def health():
     except Exception:
         pass
     
+    # Check database connection
+    database_available = False
+    try:
+        async with async_engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result.scalar()
+            database_available = True
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+    
+    # Determine overall status
+    status = "healthy" if database_available else "degraded"
+    
     return {
-        "status": "healthy",
+        "status": status,
         "dependencies": {
+            "database": database_available,
             "ffmpeg": ffmpeg_available,
             "ollama": ollama_available,
             "whisper": True,  # Will fail on first use if not working
