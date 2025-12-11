@@ -102,3 +102,4 @@ def downgrade() -> None:
     op.drop_constraint('uq_users_email', 'users', type_='unique')
     op.drop_table('users')
 
+

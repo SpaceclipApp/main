@@ -1,0 +1,30 @@
+{
+    "version": 1,
+    "rules": [
+      {
+        "pattern": "**/*",
+        "description": "AUTH SYSTEM DIRECTIVE — DO NOT MODIFY",
+        "severity": "error",
+        "content": [
+          "Spaceclip uses an opaque session-token authentication system.",
+          "Do NOT replace the existing session-token system with JWT-based login.",
+          "Do NOT introduce stateless authentication for primary sign-in.",
+          "Session tokens MUST be stored and validated through the DB-backed sessions table.",
+          "JWTs may ONLY be added later for enterprise SSO, not for core app authentication."
+        ]
+      },
+      {
+        "pattern": "**/*.py",
+        "description": "ENVIRONMENT CONFIG DIRECTIVE — DO NOT MODIFY STRUCTURE",
+        "severity": "warning",
+        "content": [
+          "Do not rename required environment variables.",
+          "Do not add new required env vars unless explicitly requested.",
+          "Do not move configuration defaults back into code.",
+          "Required vars: SECRET_KEY, DATABASE_URL, FRONTEND_URL, ALLOWED_ORIGINS, ENVIRONMENT, LOG_LEVEL.",
+          "Optional vars: REDIS_URL, PUBLIC_API_URL."
+        ]
+      }
+    ]
+  }
+  

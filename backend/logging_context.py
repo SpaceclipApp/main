@@ -10,3 +10,4 @@ from typing import Optional
 # Context variables for request tracking
 request_id_var: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
 user_id_var: ContextVar[Optional[str]] = ContextVar('user_id', default=None)
+

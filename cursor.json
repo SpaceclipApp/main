@@ -1,0 +1,68 @@
+{
+    "version": 1,
+    "models": {
+      "default": "auto",
+      "rules": [
+        {
+          "match": {
+            "description": {
+              "regex": "(auth|authentication|authorization|permissions|tokens|JWT|invite|billing|stripe|payment|subscriptions)"
+            }
+          },
+          "use": "opus-4.5"
+        },
+        {
+          "match": {
+            "description": {
+              "regex": "(multi-file|refactor|architecture|routing|state machine|queue|background jobs|ffmpeg|transcription|whisper|ollama|provider|reanalysis|clip logic|data flow)"
+            }
+          },
+          "use": "opus-4.5"
+        },
+        {
+          "match": {
+            "description": {
+              "regex": "(bugfix|minor fix|styling|ui|css|tailwind|component|alignment|dropdown|text wrapping|scroll|layout|padding)"
+            }
+          },
+          "use": "auto"
+        },
+        {
+          "match": {
+            "description": {
+              "regex": "(add button|add modal|small feature|frontend only|simple state)"
+            }
+          },
+          "use": "auto"
+        }
+      ]
+    },
+    "limits": {
+      "maxFiles": {
+        "auto": 12,
+        "opus-4.5": 50
+      },
+      "maxTokens": {
+        "auto": 30000,
+        "opus-4.5": 120000
+      }
+    },
+    "badges": {
+      "auto": {
+        "label": "AUTO",
+        "color": "#2997ff"
+      },
+      "opus-4.5": {
+        "label": "OPUS 4.5",
+        "color": "#8a2be2"
+      }
+    },
+    "preferences": {
+      "avoidLargeRefactors": true,
+      "preserveExistingCodeStyle": true,
+      "enableChainOfThought": false,
+      "askBeforeDangerousChanges": true,
+      "respectTaskOrder": true
+    }
+  }
+  

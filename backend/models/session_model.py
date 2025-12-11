@@ -46,3 +46,4 @@ class SessionModel(Base):
         Index("idx_sessions_user_id", "user_id"),
     )
 
+

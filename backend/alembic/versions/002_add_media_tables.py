@@ -121,3 +121,4 @@ def downgrade() -> None:
     op.drop_index('idx_media_project_id', table_name='media')
     op.drop_table('media')
 
+
