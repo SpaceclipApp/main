@@ -53,3 +53,4 @@ class UserModel(Base):
         Index("idx_users_email", "email"),
         Index("idx_users_wallet_address", "wallet_address"),
     )
+

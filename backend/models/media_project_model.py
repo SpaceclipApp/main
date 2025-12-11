@@ -33,3 +33,4 @@ class MediaProjectModel(Base):
         "ProjectModel",
         back_populates="media_projects"
     )
+

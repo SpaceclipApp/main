@@ -83,3 +83,4 @@ class UserRepository:
 
 # Singleton instance
 user_repository = UserRepository()
+

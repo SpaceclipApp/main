@@ -96,3 +96,4 @@ class SessionRepository:
 
 # Singleton instance
 session_repository = SessionRepository()
+

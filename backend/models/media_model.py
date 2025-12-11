@@ -75,3 +75,4 @@ class MediaModel(Base):
         back_populates="media",
         cascade="all, delete-orphan"
     )
+

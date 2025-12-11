@@ -32,3 +32,4 @@ class PasswordHashModel(Base):
         "UserModel",
         back_populates="password_hash"
     )
+

@@ -72,3 +72,4 @@ class TranscriptSegmentModel(Base):
         "TranscriptionModel",
         back_populates="segments"
     )
+

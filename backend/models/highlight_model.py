@@ -43,3 +43,4 @@ class HighlightModel(Base):
         "MediaModel",
         back_populates="highlights"
     )
+
