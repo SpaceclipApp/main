@@ -44,10 +44,39 @@ async def db_session_dependency() -> AsyncSession:
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logger.info("🚀 SpaceClip Backend starting up...")
+    logger.info(f"   Environment: {settings.environment}")
     logger.info(f"   Upload directory: {settings.upload_dir}")
     logger.info(f"   Output directory: {settings.output_dir}")
+    logger.info(f"   Frontend URL: {settings.frontend_url}")
+    logger.info(f"   CORS allowed origins: {settings.allowed_origins if settings.allowed_origins else 'Not set (using frontend_url)'}")
     logger.info(f"   Ollama host: {settings.ollama_host}")
     logger.info(f"   Whisper model: {settings.whisper_model}")
+    
+    # Validate critical settings (should already be validated in config.py, but double-check)
+    if not settings.secret_key:
+        logger.error("   ❌ SECRET_KEY is required but not set")
+        raise ValueError("SECRET_KEY is required but not set")
+    
+    if not settings.database_url:
+        logger.error("   ❌ DATABASE_URL is required but not set")
+        raise ValueError("DATABASE_URL is required but not set")
+    
+    if not settings.frontend_url:
+        logger.error("   ❌ FRONTEND_URL is required but not set")
+        raise ValueError("FRONTEND_URL is required but not set")
+    
+    # Validate ALLOWED_ORIGINS in production/staging
+    if settings.environment in ("production", "staging"):
+        if not settings.allowed_origins:
+            logger.error("   ❌ ALLOWED_ORIGINS is required in production/staging but not set")
+            raise ValueError(
+                "ALLOWED_ORIGINS is required in production/staging. "
+                "Set it as a comma-separated list, e.g., "
+                "ALLOWED_ORIGINS=https://spaceclip.io,https://www.spaceclip.io"
+            )
+        logger.info(f"   ✅ CORS origins configured for {settings.environment}")
+    
+    logger.info("   ✅ Configuration validated")
     
     # Test database connection
     logger.info("   Testing database connection...")
@@ -56,11 +85,18 @@ async def lifespan(app: FastAPI):
             result = await conn.execute(text("SELECT 1"))
             result.scalar()
         logger.info("   ✅ Database connection successful")
-        logger.info(f"   Database URL: {settings.database_url.split('@')[1] if '@' in settings.database_url else 'configured'}")
+        # Log database host (mask credentials)
+        db_display = settings.database_url.split('@')[1] if '@' in settings.database_url else 'configured'
+        logger.info(f"   Database: {db_display}")
     except Exception as e:
         logger.error(f"   ❌ Database connection failed: {e}")
         # Re-raise to prevent app from starting with broken DB
         raise
+    
+    if settings.redis_url:
+        logger.info(f"   Redis URL: {settings.redis_url.split('@')[1] if '@' in settings.redis_url else 'configured'}")
+    else:
+        logger.info("   Redis: Not configured (using in-memory rate limiting)")
     
     yield
     
@@ -86,13 +122,18 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 auth_routes.limiter = limiter
 
 # CORS middleware
+# Use allowed_origins from settings (validated in config.py)
+# In production/staging, ALLOWED_ORIGINS env var is required
+# In development, defaults to frontend_url if not set
+cors_origins = settings.allowed_origins if settings.allowed_origins else [settings.frontend_url]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info(f"   CORS origins: {cors_origins}")
 
 # Static files for outputs
 app.mount("/outputs", StaticFiles(directory=str(settings.output_dir)), name="outputs")

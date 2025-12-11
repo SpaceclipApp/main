@@ -17,6 +17,7 @@ from models.user import (
 )
 from models.database import get_db_session
 from services.auth_service import auth_service
+from config import settings, get_public_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -309,6 +310,7 @@ async def clear_project_clips(
 async def upload_avatar(
     file: UploadFile = File(...),
     authorization: Optional[str] = Header(None),
+    http_request: Request,
     db: AsyncSession = Depends(db_session_dependency)
 ):
     """Upload user avatar"""
@@ -347,8 +349,9 @@ async def upload_avatar(
         logger.error(f"Failed to save avatar: {e}")
         raise HTTPException(status_code=500, detail="Failed to save avatar")
     
-    # Generate URL
-    avatar_url = f"http://localhost:8000/uploads/avatars/{filename}"
+    # Generate URL using get_public_url helper (derives from request or settings)
+    public_url = get_public_url(http_request)
+    avatar_url = f"{public_url}/uploads/avatars/{filename}"
     
     # Update user if authenticated
     if authorization:
