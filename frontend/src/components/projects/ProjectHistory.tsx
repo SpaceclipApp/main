@@ -225,7 +225,7 @@ export function ProjectHistory() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mb-4 p-3 rounded-xl bg-void-800 border border-void-600 flex items-center justify-between"
+                className="mb-4 p-4 rounded-xl bg-void-800 border border-void-600 flex items-center justify-between"
               >
                 <span className="text-sm text-star-white/70">
                   {selectedIds.size} project{selectedIds.size > 1 ? 's' : ''} selected
@@ -278,7 +278,7 @@ export function ProjectHistory() {
                   className={cn(
                     'glass-card p-4 cursor-pointer',
                     'hover:border-nebula-purple/50 transition-all duration-200',
-                    'flex items-center gap-4 group',
+                    'flex items-center gap-4 group overflow-hidden',
                     selectedIds.has(project.media_id) && 'border-nebula-purple/60 bg-nebula-purple/5'
                   )}
                 >
@@ -315,8 +315,8 @@ export function ProjectHistory() {
                     }
                   </div>
                   
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-medium text-star-white truncate">
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <h4 className="font-medium text-star-white truncate break-words">
                       {project.title || 'Untitled Project'}
                     </h4>
                     <div className="flex items-center gap-3 text-xs text-star-white/40 mt-1">

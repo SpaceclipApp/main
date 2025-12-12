@@ -244,13 +244,11 @@ async def get_current_user_profile(
 
 
 @router.get("/projects")
-async def get_user_projects(
-    user: User = Depends(require_auth),
-    db: AsyncSession = Depends(db_session_dependency)
-):
+async def get_user_projects(user: User = Depends(require_auth), db: AsyncSession = Depends(db_session_dependency)):
     """Get all projects for current user"""
     projects = await auth_service.get_user_projects(db, user.id)
     return {"projects": projects}
+
 
 
 @router.post("/projects")
@@ -324,9 +322,9 @@ async def clear_project_clips(
 
 @router.post("/avatar")
 async def upload_avatar(
+    http_request: Request,
     file: UploadFile = File(...),
     authorization: Optional[str] = Header(None),
-    http_request: Request,
     db: AsyncSession = Depends(db_session_dependency)
 ):
     """Upload user avatar"""

@@ -75,6 +75,8 @@ interface ProjectStore {
   
   // Reset
   reset: () => void
+  // Clear all (including recent projects) - used for logout
+  clearAll: () => void
 }
 
 const initialState = {
@@ -171,6 +173,12 @@ export const useProjectStore = create<ProjectStore>()(
         ...initialState,
         // Preserve recent projects across resets
         recentProjects: get().recentProjects,
+      }),
+      
+      clearAll: () => set({
+        ...initialState,
+        // Clear everything including recent projects
+        recentProjects: [],
       }),
     }),
     {

@@ -9,15 +9,16 @@ interface TranscriptViewerProps {
   transcription: TranscriptionResult
   clipRange: { start: number; end: number } | null
   onRangeSelect: (start: number, end: number) => void
+  onSegmentClick?: (segment: { start: number; end: number }) => void
 }
 
-export function TranscriptViewer({ transcription, clipRange, onRangeSelect }: TranscriptViewerProps) {
+export function TranscriptViewer({ transcription, clipRange, onRangeSelect, onSegmentClick }: TranscriptViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [hasScrolled, setHasScrolled] = useState(false)
   
-  // Auto-scroll to selected range when it changes
+  // Auto-scroll to selected range when it changes (only if user hasn't manually scrolled)
   useEffect(() => {
-    if (clipRange && containerRef.current) {
+    if (clipRange && containerRef.current && !hasScrolled) {
       // Find the first segment that overlaps with the clip range
       const firstMatchIndex = transcription.segments.findIndex(
         seg => seg.start < clipRange.end && seg.end > clipRange.start
@@ -28,14 +29,27 @@ export function TranscriptViewer({ transcription, clipRange, onRangeSelect }: Tr
         setTimeout(() => {
           const elements = containerRef.current?.querySelectorAll('[data-segment]')
           const targetElement = elements?.[firstMatchIndex]
-          if (targetElement) {
-            targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            setHasScrolled(true)
+          if (targetElement && containerRef.current) {
+            // Only scroll if the target is not already visible
+            const containerRect = containerRef.current.getBoundingClientRect()
+            const targetRect = targetElement.getBoundingClientRect()
+            const isVisible = targetRect.top >= containerRect.top && targetRect.bottom <= containerRect.bottom
+            
+            if (!isVisible) {
+              targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
           }
         }, 100)
       }
     }
-  }, [clipRange?.start, clipRange?.end, transcription.segments])
+  }, [clipRange?.start, clipRange?.end, transcription.segments, hasScrolled])
+  
+  // Reset hasScrolled when clipRange is cleared
+  useEffect(() => {
+    if (!clipRange) {
+      setHasScrolled(false)
+    }
+  }, [clipRange])
   
   // Check if segment overlaps with clip range (not fully contained)
   const isSegmentInRange = (start: number, end: number) => {
@@ -45,6 +59,9 @@ export function TranscriptViewer({ transcription, clipRange, onRangeSelect }: Tr
   }
   
   const handleSegmentClick = (start: number, end: number) => {
+    // Seek player to segment start time
+    onSegmentClick?.({ start, end })
+    
     // If shift is held, extend the range
     // Otherwise, start a new selection
     if (clipRange) {

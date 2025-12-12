@@ -121,10 +121,11 @@ class ProjectStorage:
     # Save operations
     # -------------------------------------------------------------------------
     
-    async def save_project(self, db: AsyncSession, media_id: str, state: ProjectState) -> None:
+    async def save_project(self, db: AsyncSession, media_id: str, state: ProjectState, project_id: Optional[str] = None) -> None:
         """Save project state to database"""
         try:
             media_uuid = UUID(media_id)
+            project_uuid = UUID(project_id) if project_id else None
             
             # Check if media exists
             existing_media = await self.media_repo.get_by_id(db, media_uuid)
@@ -137,12 +138,15 @@ class ProjectStorage:
                 if state.media:
                     existing_media.duration = state.media.duration
                     existing_media.thumbnail_path = state.media.thumbnail_path
+                # Update project_id if provided and not already set
+                if project_uuid and not existing_media.project_id:
+                    existing_media.project_id = project_uuid
                 await self.media_repo.update(db, existing_media)
             elif state.media:
-                # Create new media entry
+                # Create new media entry with project_id
                 media_model = MediaModel(
                     id=media_uuid,
-                    project_id=None,  # Can be set later when assigned to a project
+                    project_id=project_uuid,  # Link to user's project
                     filename=state.media.filename,
                     original_filename=state.media.original_filename,
                     file_path=state.media.file_path,
@@ -268,37 +272,54 @@ class ProjectStorage:
     # Load operations
     # -------------------------------------------------------------------------
     
-    async def load_project(self, db: AsyncSession, media_id: str) -> Optional[ProjectState]:
-        """Load project state from database"""
+    async def load_project(self, db: AsyncSession, media_id: str, user_id: Optional[str] = None) -> Optional[ProjectState]:
+        """Load project state from database with optional user ownership check."""
         try:
             media_uuid = UUID(media_id)
-            
+
             # Load media with all relations
             media_model = await self.media_repo.get_by_id_with_relations(db, media_uuid)
-            
             if not media_model:
                 return None
-            
+
+            # Resolve owning user + project from the media's project_id
+            resolved_user_id: Optional[str] = None
+            resolved_project_id: Optional[str] = None
+
+            if media_model.project_id:
+                resolved_project_id = str(media_model.project_id)
+                from repositories.project_repository import project_repository
+                project = await project_repository.get_by_id(db, media_model.project_id)
+                if project:
+                    resolved_user_id = str(project.user_id)
+
+            # Ownership check: if caller provided user_id, enforce it
+            if user_id and resolved_user_id and resolved_user_id != user_id:
+                # Media belongs to a different user
+                return None
+
             # Convert to Pydantic models
             media = self._media_model_to_pydantic(media_model)
-            
+
             transcription = None
             if media_model.transcription:
                 transcription = self._transcription_model_to_pydantic(media_model.transcription)
-            
+
             highlights = None
             if media_model.highlights:
                 highlights = self._highlights_to_pydantic(media_model.highlights, media_id)
-            
+
             clips = [self._clip_model_to_pydantic(c) for c in media_model.clips]
-            
+
             # Map status string to enum
             try:
                 status = ProcessingStatus(media_model.status)
             except ValueError:
                 status = ProcessingStatus.PENDING
-            
+
             return ProjectState(
+                user_id=resolved_user_id,
+                project_id=resolved_project_id,
                 media=media,
                 status=status,
                 progress=media_model.progress,
@@ -311,13 +332,35 @@ class ProjectStorage:
             logger.error(f"Failed to load project {media_id}: {e}")
             return None
     
-    async def list_projects(self, db: AsyncSession) -> list[dict]:
-        """List all saved projects"""
+    async def list_projects(self, db: AsyncSession, user_id: Optional[str] = None) -> list[dict]:
+        """List saved media for current user only"""
         try:
-            media_list = await self.media_repo.list_all(db)
+            if not user_id:
+                # No user - return empty list to prevent data leakage
+                return []
+
+            # Get user's projects first
+            from repositories.project_repository import project_repository
+            user_projects = await project_repository.get_by_user_id(db, UUID(user_id))
+            project_ids = [p.id for p in user_projects]
+
+            # Get media belonging to user's projects ONLY
+            media_list = []
+            for project_id in project_ids:
+                project_media = await self.media_repo.get_by_project_id(db, project_id)
+                media_list.extend(project_media)
             
             projects = []
+            seen_ids = set()  # Prevent duplicates
             for media in media_list:
+                if str(media.id) in seen_ids:
+                    continue
+                seen_ids.add(str(media.id))
+                
+                # Skip archived media
+                if media.status == "archived":
+                    continue
+                
                 # Get highlight count
                 highlights = await self.highlight_repo.get_by_media_id(db, media.id)
                 clips = await self.clip_repo.get_by_media_id(db, media.id)
@@ -333,6 +376,9 @@ class ProjectStorage:
                     "highlights_count": len(highlights),
                 })
             
+            # Sort by saved_at descending
+            projects.sort(key=lambda x: x["saved_at"] or "", reverse=True)
+            
             return projects
         except Exception as e:
             logger.error(f"Failed to list projects: {e}")
@@ -342,7 +388,7 @@ class ProjectStorage:
     # Delete operations
     # -------------------------------------------------------------------------
     
-    async def delete_project_async(self, db: AsyncSession, media_id: str) -> bool:
+    async def delete_project_async(self, db: AsyncSession, media_id: str, user_id: Optional[str] = None) -> bool:
         """Delete a saved project and its associated files (async version)"""
         try:
             media_uuid = UUID(media_id)
@@ -351,6 +397,14 @@ class ProjectStorage:
             media_model = await self.media_repo.get_by_id(db, media_uuid)
             
             if media_model:
+                # Verify ownership if user_id provided
+                if user_id and media_model.project_id:
+                    from repositories.project_repository import project_repository
+                    project = await project_repository.get_by_id(db, media_model.project_id)
+                    if project and str(project.user_id) != user_id:
+                        logger.warning(f"User {user_id} attempted to delete media {media_id} owned by another user")
+                        return False
+                
                 # Get clips to delete their files
                 clips = await self.clip_repo.get_by_media_id(db, media_uuid)
                 
@@ -375,6 +429,55 @@ class ProjectStorage:
             return False
         except Exception as e:
             logger.error(f"Failed to delete project {media_id}: {e}")
+            return False
+    
+    async def archive_media(self, db: AsyncSession, media_id: str, user_id: Optional[str] = None) -> bool:
+        """Archive a media item (soft delete)"""
+        try:
+            media_uuid = UUID(media_id)
+            media_model = await self.media_repo.get_by_id(db, media_uuid)
+            
+            if not media_model:
+                return False
+            
+            # Verify ownership if user_id provided
+            if user_id and media_model.project_id:
+                from repositories.project_repository import project_repository
+                project = await project_repository.get_by_id(db, media_model.project_id)
+                if project and str(project.user_id) != user_id:
+                    return False
+            
+            # Update status to archived
+            await self.media_repo.update_status(db, media_uuid, "archived")
+            logger.info(f"Archived media {media_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to archive media {media_id}: {e}")
+            return False
+    
+    async def unarchive_media(self, db: AsyncSession, media_id: str, user_id: Optional[str] = None) -> bool:
+        """Unarchive a media item"""
+        try:
+            media_uuid = UUID(media_id)
+            media_model = await self.media_repo.get_by_id(db, media_uuid)
+            
+            if not media_model:
+                return False
+            
+            # Verify ownership if user_id provided
+            if user_id and media_model.project_id:
+                from repositories.project_repository import project_repository
+                project = await project_repository.get_by_id(db, media_model.project_id)
+                if project and str(project.user_id) != user_id:
+                    return False
+            
+            # Update status to complete (or pending if never processed)
+            new_status = "complete" if media_model.progress >= 1.0 else "pending"
+            await self.media_repo.update_status(db, media_uuid, new_status)
+            logger.info(f"Unarchived media {media_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to unarchive media {media_id}: {e}")
             return False
     
     def delete_project(self, media_id: str) -> bool:

@@ -11,7 +11,7 @@ import { ProjectsModal } from '@/components/projects/ProjectsModal'
 import { cn } from '@/lib/utils'
 
 export function Header() {
-  const { step, reset, media } = useProjectStore()
+  const { step, reset, clearAll, media } = useProjectStore()
   const { user, isAuthenticated, logout } = useAuthStore()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showSignIn, setShowSignIn] = useState(false)
@@ -19,8 +19,11 @@ export function Header() {
   const [showProjects, setShowProjects] = useState(false)
   
   const handleLogout = () => {
-    logout()
+    logout() // Clear auth store
+    clearAll() // Clear all project store data including recent projects
     setShowUserMenu(false)
+    // Redirect to upload view
+    window.location.href = '/'
   }
   
   const handleOpenSettings = () => {
@@ -103,15 +106,17 @@ export function Header() {
                       <>
                         {/* Backdrop */}
                         <div 
-                          className="fixed inset-0 z-10" 
-                          onClick={() => setShowUserMenu(false)} 
+                          className="fixed inset-0 z-[100]" 
+                          onClick={() => setShowUserMenu(false)}
+                          style={{ pointerEvents: 'auto' }}
                         />
                         
                         <motion.div
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute right-0 mt-2 w-56 py-2 rounded-xl bg-void-800 border border-void-600 shadow-xl z-20"
+                          className="absolute right-0 mt-2 w-56 py-2 rounded-xl bg-void-800 border border-void-600 shadow-xl z-[101]"
+                          style={{ pointerEvents: 'auto' }}
                         >
                           {/* User info */}
                           <div className="px-4 py-3 border-b border-void-600">

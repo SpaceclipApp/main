@@ -159,6 +159,12 @@ class ClipResult(BaseModel):
 
 class ProjectState(BaseModel):
     """Full project state for frontend"""
+    # Owner of this project (derived from the project's user)
+    user_id: Optional[str] = None
+
+    # ID of the logical project / folder row in the DB
+    project_id: Optional[str] = None
+
     media: Optional[MediaInfo] = None
     status: ProcessingStatus = ProcessingStatus.PENDING
     progress: float = 0.0

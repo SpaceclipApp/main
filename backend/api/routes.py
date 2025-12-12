@@ -25,6 +25,7 @@ from models import (
     Platform,
 )
 from models.database import get_db_session
+from models.user import User
 from services import (
     media_downloader,
     transcription_service,
@@ -32,12 +33,22 @@ from services import (
     clip_generator,
 )
 from services.project_storage import project_storage
+from services.auth_service import auth_service
+from api.auth_routes import get_current_user, require_auth
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # In-memory project store (with database persistence)
+# Keyed by user_id:media_id to prevent cross-user cache poisoning
 projects: dict[str, ProjectState] = {}
+
+
+def _cache_key(user_id: Optional[str], media_id: str) -> str:
+    """Generate cache key that includes user scope"""
+    if user_id:
+        return f"{user_id}:{media_id}"
+    return f"anon:{media_id}"
 
 
 async def db_session_dependency() -> AsyncSession:
@@ -46,23 +57,79 @@ async def db_session_dependency() -> AsyncSession:
         yield session
 
 
-async def _save_project(db: AsyncSession, media_id: str):
+async def _get_user_default_project_id(db: AsyncSession, user_id: str) -> Optional[str]:
+    """Get or create user's default project and return its ID"""
+    from repositories.project_repository import project_repository
+    from models.project_model import ProjectModel
+    from uuid import UUID
+    
+    user_uuid = UUID(user_id)
+    user_projects = await project_repository.get_by_user_id(db, user_uuid)
+    
+    if user_projects:
+        # Return first project (default)
+        return str(user_projects[0].id)
+    
+    # Create default project for user
+    default_project = ProjectModel(
+        user_id=user_uuid,
+        name="My Clips",
+        description="Default project for your clips",
+    )
+    created = await project_repository.create(db, default_project)
+    return str(created.id)
+
+
+async def _save_project(db: AsyncSession, media_id: str, user_id: Optional[str] = None, project_id: Optional[str] = None):
     """Save project to database"""
-    if media_id in projects:
-        await project_storage.save_project(db, media_id, projects[media_id])
+    cache_key = _cache_key(user_id, media_id)
+    state = None
+    if cache_key in projects:
+        state = projects[cache_key]
+    elif media_id in projects:
+        # Legacy cache key support
+        state = projects[media_id]
+
+    if state:
+        await project_storage.save_project(db, media_id, state, project_id=project_id)
 
 
-async def _load_or_create_project(db: AsyncSession, media_id: str) -> ProjectState:
-    """Load project from database or memory"""
+async def _load_or_create_project(
+    db: AsyncSession,
+    media_id: str,
+    user_id: Optional[str] = None,
+    current_user: Optional[User] = None,
+) -> Optional[ProjectState]:
+    """Load project from database or memory with user scoping."""
+    cache_key = _cache_key(user_id, media_id)
+
+    # 1) Try user-scoped cache
+    if cache_key in projects:
+        cached = projects[cache_key]
+        # If we have an authenticated user, enforce ownership
+        if current_user and cached.user_id and str(cached.user_id) != str(current_user.id):
+            return None
+        return cached
+
+    # 2) Legacy cache (pre-scoped keys)
     if media_id in projects:
-        return projects[media_id]
-    
-    # Try loading from database
-    loaded = await project_storage.load_project(db, media_id)
+        cached = projects[media_id]
+        # Enforce ownership if possible
+        if current_user and cached.user_id and str(cached.user_id) != str(current_user.id):
+            return None
+        # Also promote to scoped key for future lookups
+        projects[cache_key] = cached
+        return cached
+
+    # 3) Load from DB via project_storage (which also enforces ownership)
+    loaded = await project_storage.load_project(db, media_id, user_id=user_id)
     if loaded:
-        projects[media_id] = loaded
+        # Ensure user_id and project_id are set consistently
+        if current_user and not loaded.user_id:
+            loaded.user_id = str(current_user.id)
+        projects[cache_key] = loaded
         return loaded
-    
+
     return None
 
 
@@ -70,9 +137,15 @@ async def _load_or_create_project(db: AsyncSession, media_id: str) -> ProjectSta
 async def upload_file(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Upload a media file (video or audio)"""
+    # Get user info for project linking (user must be authenticated)
+    user_id = current_user.id
+    # Get or create user's default project
+    project_id = await _get_user_default_project_id(db, user_id)
+    
     # Validate file type
     allowed_extensions = {
         '.mp4', '.mov', '.avi', '.mkv', '.webm',  # Video
@@ -96,14 +169,17 @@ async def upload_file(
         # Process the upload
         media_info = await media_downloader.process_upload(temp_path, file.filename)
         
-        # Create project
-        projects[media_info.id] = ProjectState(
+        # Create project state with user + project scoping
+        cache_key = _cache_key(user_id, media_info.id)
+        projects[cache_key] = ProjectState(
+            user_id=str(user_id) if user_id else None,
+            project_id=str(project_id) if project_id else None,
             media=media_info,
-            status=ProcessingStatus.PENDING
+            status=ProcessingStatus.PENDING,
         )
         
-        # Save to database
-        await _save_project(db, media_info.id)
+        # Save to database with project_id linking
+        await _save_project(db, media_info.id, user_id, project_id=project_id)
         
         return media_info
         
@@ -118,20 +194,29 @@ async def upload_file(
 @router.post("/upload/url", response_model=MediaInfo)
 async def upload_from_url(
     request: MediaUploadRequest,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Download and process media from URL (YouTube, X Spaces, etc.)"""
+    # Get user info for project linking (user must be authenticated)
+    user_id = current_user.id
+    # Get or create user's default project
+    project_id = await _get_user_default_project_id(db, user_id)
+    
     try:
         media_info = await media_downloader.download(request.url)
         
-        # Create project
-        projects[media_info.id] = ProjectState(
+        # Create project state with user + project scoping
+        cache_key = _cache_key(user_id, media_info.id)
+        projects[cache_key] = ProjectState(
+            user_id=str(user_id) if user_id else None,
+            project_id=str(project_id) if project_id else None,
             media=media_info,
-            status=ProcessingStatus.PENDING
+            status=ProcessingStatus.PENDING,
         )
         
-        # Save to database
-        await _save_project(db, media_info.id)
+        # Save to database with project_id linking
+        await _save_project(db, media_info.id, user_id, project_id=project_id)
         
         return media_info
         
@@ -145,10 +230,12 @@ async def transcribe_media(
     media_id: str, 
     language: Optional[str] = None,
     num_speakers: Optional[int] = None,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Transcribe uploaded media with speaker detection"""
-    project = await _load_or_create_project(db, media_id)
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -167,14 +254,14 @@ async def transcribe_media(
         project.status = ProcessingStatus.PENDING
         
         # Save to database
-        await _save_project(db, media_id)
+        await _save_project(db, media_id, user_id=user_id)
         
         return result
         
     except Exception as e:
         project.status = ProcessingStatus.ERROR
         project.error = str(e)
-        await _save_project(db, media_id)
+        await _save_project(db, media_id, user_id=user_id)
         logger.error(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -188,7 +275,8 @@ async def analyze_highlights(
     start_time: Optional[float] = None,
     end_time: Optional[float] = None,
     append: bool = False,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """
     Analyze media for highlights using AI
@@ -201,7 +289,8 @@ async def analyze_highlights(
         end_time: Optional end time to analyze specific section
         append: If True, append new highlights to existing ones
     """
-    project = await _load_or_create_project(db, media_id)
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -248,14 +337,14 @@ async def analyze_highlights(
         project.status = ProcessingStatus.COMPLETE
         
         # Save to database
-        await _save_project(db, media_id)
+        await _save_project(db, media_id, user_id=user_id)
         
         return result
         
     except Exception as e:
         project.status = ProcessingStatus.ERROR
         project.error = str(e)
-        await _save_project(db, media_id)
+        await _save_project(db, media_id, user_id=user_id)
         logger.error(f"Analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -263,10 +352,12 @@ async def analyze_highlights(
 @router.post("/clips", response_model=list[ClipResult])
 async def create_clips(
     request: ClipRequest,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Create clips for specified platforms"""
-    project = await _load_or_create_project(db, request.media_id)
+    user_id = current_user.id
+    project = await _load_or_create_project(db, request.media_id, user_id, current_user)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -295,28 +386,37 @@ async def create_clips(
             project.clips.append(clip)
         
         # Save to database
-        await _save_project(db, request.media_id)
+        await _save_project(db, request.media_id, user_id=user_id)
         
         return results
         
     except Exception as e:
+        project.status = ProcessingStatus.ERROR
+        project.error = str(e)
+        await _save_project(db, request.media_id, user_id=user_id)
         logger.error(f"Clip creation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/projects", response_model=list[dict])
-async def list_projects(db: AsyncSession = Depends(db_session_dependency)):
-    """List all saved projects"""
-    return await project_storage.list_projects(db)
+async def list_projects(
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """List all saved media for the current user"""
+    user_id = current_user.id
+    return await project_storage.list_projects(db, user_id=user_id)
 
 
 @router.get("/projects/{media_id}", response_model=ProjectState)
 async def get_project(
     media_id: str,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Get full project state"""
-    project = await _load_or_create_project(db, media_id)
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
     
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -364,17 +464,21 @@ async def get_thumbnail(media_id: str):
 @router.delete("/projects/{media_id}")
 async def delete_project(
     media_id: str,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """Delete a project and its files"""
-    # Try to load from database first
-    project = await _load_or_create_project(db, media_id)
+    user_id = current_user.id
     
-    if not project and media_id not in projects:
+    # Try to load from database first
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
+    cache_key = _cache_key(user_id, media_id)
+    
+    if not project and cache_key not in projects and media_id not in projects:
         raise HTTPException(status_code=404, detail="Media not found")
     
     if not project:
-        project = projects.get(media_id)
+        project = projects.get(cache_key) or projects.get(media_id)
     
     if project:
         # Delete media file
@@ -396,13 +500,80 @@ async def delete_project(
                 clip_path.unlink()
     
     # Delete from database
-    await project_storage.delete_project_async(db, media_id)
+    await project_storage.delete_project_async(db, media_id, user_id)
     
-    # Remove from in-memory store
+    # Remove from in-memory store (both keys)
+    if cache_key in projects:
+        del projects[cache_key]
     if media_id in projects:
         del projects[media_id]
     
     return {"status": "deleted"}
+
+
+@router.post("/projects/{media_id}/archive")
+async def archive_media_project(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """Archive a media project (soft delete)"""
+    user_id = current_user.id
+    
+    # Update media status to archived
+    success = await project_storage.archive_media(db, media_id, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    # Remove from cache
+    cache_key = _cache_key(user_id, media_id)
+    if cache_key in projects:
+        del projects[cache_key]
+    if media_id in projects:
+        del projects[media_id]
+    
+    return {"status": "archived"}
+
+
+@router.post("/projects/{media_id}/unarchive")
+async def unarchive_media_project(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """Unarchive a media project"""
+    user_id = current_user.id
+    
+    # Update media status to active
+    success = await project_storage.unarchive_media(db, media_id, user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    return {"status": "active"}
+
+
+@router.post("/projects/{media_id}/clear-clips")
+async def clear_media_clips(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """Clear all generated clips from a media project"""
+    user_id = current_user.id
+    
+    # Clear clips
+    success = await project_storage.clear_project_clips(db, media_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    # Update cache
+    cache_key = _cache_key(user_id, media_id)
+    if cache_key in projects:
+        projects[cache_key].clips = []
+    if media_id in projects:
+        projects[media_id].clips = []
+    
+    return {"status": "cleared"}
 
 
 @router.get("/platforms", response_model=list[dict])
@@ -442,7 +613,8 @@ async def process_full(
     media_id: str,
     background_tasks: BackgroundTasks,
     auto_clip: bool = True,
-    db: AsyncSession = Depends(db_session_dependency)
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
 ):
     """
     Full processing pipeline:
@@ -450,16 +622,21 @@ async def process_full(
     2. Analyze highlights
     3. Optionally generate clips for top highlights
     """
-    project = await _load_or_create_project(db, media_id)
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
+    
+    # Capture user_id for background task
+    bg_user_id = user_id
+    cache_key = _cache_key(user_id, media_id)
     
     async def _process():
         # Get a fresh database session for background task
         from models.database import get_db_session
         async for bg_db in get_db_session():
             try:
-                project = projects[media_id]
+                project = projects[cache_key]
                 
                 # Transcribe
                 project.status = ProcessingStatus.TRANSCRIBING
@@ -505,13 +682,13 @@ async def process_full(
                 project.progress = 1.0
                 
                 # Save to database
-                await _save_project(bg_db, media_id)
+                await _save_project(bg_db, media_id, user_id=bg_user_id)
                 
             except Exception as e:
                 project.status = ProcessingStatus.ERROR
                 project.error = str(e)
                 logger.error(f"Processing error: {e}")
-                await _save_project(bg_db, media_id)
+                await _save_project(bg_db, media_id, user_id=bg_user_id)
     
     # Run in background
     background_tasks.add_task(asyncio.create_task, _process())

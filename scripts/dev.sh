@@ -9,6 +9,7 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}🚀 Starting SpaceClip Development Environment${NC}"
@@ -24,14 +25,33 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+# Check PostgreSQL
+if ! pg_isready -h localhost > /dev/null 2>&1; then
+    echo -e "${RED}❌ PostgreSQL is not running${NC}"
+    echo -e "${YELLOW}   Start it with: brew services start postgresql@18${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ PostgreSQL is running${NC}"
+
+# Check if database exists, if not run setup
+if ! psql -h localhost -U $(whoami) -lqt | cut -d \| -f 1 | grep -qw spaceclip; then
+    echo -e "${YELLOW}⚠️  Database not found. Running setup...${NC}"
+    ./scripts/setup-db.sh
+fi
+
 # Check if Ollama is running
 if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Ollama is running${NC}"
 else
-    echo -e "${RED}⚠️  Ollama is not running. Starting it...${NC}"
+    echo -e "${YELLOW}⚠️  Ollama is not running. Starting it...${NC}"
     ollama serve &
     sleep 3
 fi
+
+# Set environment variables
+export SECRET_KEY="${SECRET_KEY:-dev-secret-key-$(openssl rand -hex 16)}"
+export DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://spaceclip:spaceclip@localhost:5432/spaceclip}"
+export FRONTEND_URL="${FRONTEND_URL:-http://localhost:3000}"
 
 # Start backend
 echo -e "${BLUE}Starting backend...${NC}"
@@ -43,8 +63,15 @@ cd ..
 
 # Wait for backend to be ready
 echo "Waiting for backend..."
+MAX_WAIT=30
+WAIT_COUNT=0
 until curl -s http://localhost:8000/health > /dev/null 2>&1; do
     sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        echo -e "${RED}❌ Backend failed to start${NC}"
+        exit 1
+    fi
 done
 echo -e "${GREEN}✅ Backend running on http://localhost:8000${NC}"
 
@@ -67,6 +94,7 @@ echo "Press Ctrl+C to stop all services"
 
 # Wait for processes
 wait
+
 
 
 

@@ -112,6 +112,12 @@ export function HighlightsView() {
                 transcription={transcription}
                 clipRange={clipRange}
                 onRangeSelect={setClipRange}
+                onSegmentClick={(segment) => {
+                  // Seek player to segment start time
+                  if (playerRef.current) {
+                    playerRef.current.seekTo(segment.start)
+                  }
+                }}
               />
             </motion.div>
           )}

@@ -83,15 +83,49 @@ ollama serve
 
 ## Starting and Stopping Servers
 
+### Prerequisites
+
+1. **PostgreSQL must be running:**
+   ```bash
+   # Check if running
+   pg_isready -h localhost
+   
+   # If not running, start it:
+   brew services start postgresql@18
+   # or
+   pg_ctl -D /opt/homebrew/var/postgresql@18 start
+   ```
+
+2. **Set up the database (first time only):**
+   ```bash
+   ./scripts/setup-db.sh
+   ```
+   This creates the `spaceclip` database and user, and runs migrations.
+
 ### Start Servers
 
 **Option 1: Use the dev script (Recommended)**
 ```bash
 ./scripts/dev.sh
 ```
-This starts both backend and frontend automatically. Press `Ctrl+C` to stop all services.
+This script will:
+- Check PostgreSQL is running
+- Set up database if needed
+- Start Ollama (if not running)
+- Start backend with proper environment variables
+- Start frontend
+- Wait for both to be ready
+
+Press `Ctrl+C` to stop all services.
 
 **Option 2: Start manually**
+
+First, ensure environment variables are set:
+```bash
+export SECRET_KEY="dev-secret-key-$(openssl rand -hex 16)"
+export DATABASE_URL="postgresql+asyncpg://spaceclip:spaceclip@localhost:5432/spaceclip"
+export FRONTEND_URL="http://localhost:3000"
+```
 
 Backend (in one terminal):
 ```bash
@@ -107,6 +141,11 @@ npm run dev
 ```
 
 ### Stop Servers
+
+**Quick kill script:**
+```bash
+./scripts/kill.sh
+```
 
 **If using the dev script:**
 - Press `Ctrl+C` in the terminal running the script
@@ -419,6 +458,7 @@ For local HTTPS testing, you can use:
 ## License
 
 MIT
+
 
 
 

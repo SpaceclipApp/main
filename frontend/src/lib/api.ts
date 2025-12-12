@@ -296,29 +296,33 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return response.data
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
-  await api.delete(`/auth/projects/${projectId}`)
+export async function deleteProject(mediaId: string): Promise<void> {
+  // Use the media-level delete endpoint (routes.py)
+  await api.delete(`/projects/${mediaId}`)
 }
 
-export async function archiveProject(projectId: string): Promise<void> {
-  await api.post(`/auth/projects/${projectId}/archive`)
+export async function archiveProject(mediaId: string): Promise<void> {
+  // Archive endpoint - use media-level route
+  await api.post(`/projects/${mediaId}/archive`)
 }
 
-export async function unarchiveProject(projectId: string): Promise<void> {
-  await api.post(`/auth/projects/${projectId}/unarchive`)
+export async function unarchiveProject(mediaId: string): Promise<void> {
+  // Unarchive endpoint - use media-level route
+  await api.post(`/projects/${mediaId}/unarchive`)
 }
 
-export async function clearProjectClips(projectId: string): Promise<void> {
-  await api.post(`/auth/projects/${projectId}/clear-clips`)
+export async function clearProjectClips(mediaId: string): Promise<void> {
+  // Clear clips for a media item
+  await api.post(`/projects/${mediaId}/clear-clips`)
 }
 
 // Bulk actions
-export async function deleteProjects(projectIds: string[]): Promise<void> {
-  await Promise.all(projectIds.map(id => deleteProject(id)))
+export async function deleteProjects(mediaIds: string[]): Promise<void> {
+  await Promise.all(mediaIds.map(id => deleteProject(id)))
 }
 
-export async function archiveProjects(projectIds: string[]): Promise<void> {
-  await Promise.all(projectIds.map(id => archiveProject(id)))
+export async function archiveProjects(mediaIds: string[]): Promise<void> {
+  await Promise.all(mediaIds.map(id => archiveProject(id)))
 }
 
 export async function processMedia(mediaId: string, autoClip: boolean = true): Promise<void> {

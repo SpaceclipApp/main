@@ -1,6 +1,7 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useRef } from 'react'
 import { Rocket, Sparkles, Wand2, Download } from 'lucide-react'
 import { useProjectStore } from '@/store/project'
 import { Header } from '@/components/layout/Header'
@@ -35,6 +36,17 @@ const features = [
 
 export default function Home() {
   const { step } = useProjectStore()
+  const highlightsRef = useRef<HTMLDivElement>(null)
+  const exportRef = useRef<HTMLDivElement>(null)
+  
+  // Reset scroll position when step changes
+  useEffect(() => {
+    if (step === 'highlights' && highlightsRef.current) {
+      highlightsRef.current.scrollTop = 0
+    } else if (step === 'export' && exportRef.current) {
+      exportRef.current.scrollTop = 0
+    }
+  }, [step])
   
   return (
     <div className="relative min-h-screen flex flex-col">
@@ -132,6 +144,7 @@ export default function Home() {
           {step === 'highlights' && (
             <motion.div
               key="highlights"
+              ref={highlightsRef}
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -50 }}
@@ -145,6 +158,7 @@ export default function Home() {
           {step === 'export' && (
             <motion.div
               key="export"
+              ref={exportRef}
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -50 }}
