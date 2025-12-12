@@ -332,7 +332,7 @@ class ProjectStorage:
             logger.error(f"Failed to load project {media_id}: {e}")
             return None
     
-    async def list_projects(self, db: AsyncSession, user_id: Optional[str] = None) -> list[dict]:
+    async def list_projects(self, db: AsyncSession, user_id: Optional[str] = None, include_archived: bool = False) -> list[dict]:
         """List saved media for current user only"""
         try:
             if not user_id:
@@ -357,9 +357,10 @@ class ProjectStorage:
                     continue
                 seen_ids.add(str(media.id))
                 
-                # Skip archived media
-                if media.status == "archived":
+                # Skip archived media unless explicitly requested
+                if not include_archived and media.status == "archived":
                     continue
+
                 
                 # Get highlight count
                 highlights = await self.highlight_repo.get_by_media_id(db, media.id)

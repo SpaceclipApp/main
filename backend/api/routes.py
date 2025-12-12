@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks, Depends, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -400,12 +400,19 @@ async def create_clips(
 
 @router.get("/projects", response_model=list[dict])
 async def list_projects(
+    include_archived: bool = Query(False),
     db: AsyncSession = Depends(db_session_dependency),
-    current_user: User = Depends(require_auth)
+    current_user: User = Depends(require_auth),
 ):
     """List all saved media for the current user"""
+
     user_id = current_user.id
-    return await project_storage.list_projects(db, user_id=user_id)
+
+    return await project_storage.list_projects(
+        db,
+        user_id=user_id,
+        include_archived=include_archived,
+    )
 
 
 @router.get("/projects/{media_id}", response_model=ProjectState)

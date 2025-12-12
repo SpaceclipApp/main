@@ -291,8 +291,10 @@ export interface ProjectSummary {
   highlights_count: number
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
-  const response = await api.get('/projects')
+export async function listProjects(includeArchived: boolean = false): Promise<ProjectSummary[]> {
+  const response = await api.get('/projects', {
+    params: { include_archived: includeArchived }
+  })
   return response.data
 }
 
