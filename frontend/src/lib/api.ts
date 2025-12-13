@@ -302,6 +302,74 @@ export async function getProjectStatus(mediaId: string): Promise<ProjectStatusRe
   return response.data
 }
 
+export interface ClipCaption {
+  id: number
+  start: number
+  end: number
+  original_start?: number
+  original_end?: number
+  text: string
+  speaker: string | null
+  confidence?: number
+}
+
+export interface ClipCaptionsResponse {
+  media_id: string
+  clip_start: number
+  clip_end: number
+  clip_duration: number
+  segments: ClipCaption[]
+  segment_count: number
+}
+
+/**
+ * Get captions/transcript segments for a specific time range.
+ * Used for regenerating captions after clip boundary adjustment.
+ */
+export async function getClipCaptions(
+  mediaId: string,
+  start: number,
+  end: number
+): Promise<ClipCaptionsResponse> {
+  const response = await api.get(`/projects/${mediaId}/captions`, {
+    params: { start, end }
+  })
+  return response.data
+}
+
+export interface ClipRangeResponse {
+  media_id: string
+  start: number
+  end: number
+  duration: number
+  highlight: {
+    id: string
+    title: string
+    original_start: number
+    original_end: number
+  } | null
+  captions: ClipCaption[]
+  caption_count: number
+}
+
+/**
+ * Update/save the current clip range selection.
+ * Returns updated captions for the new range.
+ */
+export async function updateClipRange(
+  mediaId: string,
+  start: number,
+  end: number,
+  highlightId?: string
+): Promise<ClipRangeResponse> {
+  const params: Record<string, any> = { start, end }
+  if (highlightId) {
+    params.highlight_id = highlightId
+  }
+  const response = await api.post(`/projects/${mediaId}/clip-range`, null, { params })
+  return response.data
+}
+
 export interface ProjectSummary {
   media_id: string
   title: string

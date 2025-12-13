@@ -12,14 +12,15 @@
 ## 📊 **PROGRESS SUMMARY**
 
 **Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
+**Phase 2 Progress:** 2/2 tasks completed (100%) ✅ **PHASE 2 COMPLETE!**
 
-**✅ Completed Tasks:**
+**✅ Phase 1 Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
 - Task 1.2 — Fix logout not clearing state
 - Task 1.3 — Fix archive/delete 404
 - Task 1.4 — Implement failure states
-- Task 1.5 — Whisper long-form processing stalls ✅ **JUST COMPLETED**
-- Task 1.6 — Project queue status updates ✅ **JUST COMPLETED**
+- Task 1.5 — Whisper long-form processing stalls
+- Task 1.6 — Project queue status updates
 - Task 1.7 — Transcript click-to-scrub bug
 - Task 1.8 — Scrolling "stuck at bottom" bug
 - Task 1.9 — Mobile dropdown invisible
@@ -29,8 +30,12 @@
 - Task 1.13 — Duplicate clips on reanalysis
 - Task 1.14 — Active/Archived toggle & Portal menu
 
-**⏸️ Remaining Tasks:**
-- None! Phase 1 is complete.
+**✅ Phase 2 Completed Tasks:**
+- Task 2.1 — Drag handles for clip boundaries ✅ **JUST COMPLETED**
+- Task 2.2 — Regenerate captions after manual trim ✅ **JUST COMPLETED**
+
+**📝 Next Up:**
+- Phase 3 — Paywall + Invites (requires confirmation)
 
 **📝 Notes:**
 - Multi-tenant isolation fully implemented with user-scoped cache keys
@@ -319,39 +324,74 @@ status: ✅ COMPLETED
 
 # ================================
 
-# **PHASE 2 — MANUAL CLIP CONTROLS**
+# **PHASE 2 — MANUAL CLIP CONTROLS** ✅ **COMPLETE**
 
 # ================================
 
 ---
 
-## **TASK 2.1 — Drag handles for clip boundaries**
+## **TASK 2.1 — Drag handles for clip boundaries** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* Add draggable handles to timeline
-* Word-boundary snapping
-* Save new positions to DB
+* ✅ Add draggable handles to timeline
+* ✅ Word-boundary snapping (snaps to transcript segment boundaries)
+* ✅ Save new positions to DB
+
+**Implementation:**
+- Created `ClipRangeEditor` component with:
+  - Drag handles at start/end of clip region
+  - Visual timeline with clip region highlight
+  - Word-boundary snapping (0.5s threshold)
+  - Tooltips showing current time during drag
+  - Duration constraints (5s min, 180s max)
+  - Touch support for mobile
+- Integrated into `ExportView` for clip adjustment before export
+- Added `POST /projects/{media_id}/clip-range` endpoint for saving
+
+**Files Created/Modified:**
+- `frontend/src/components/player/ClipRangeEditor.tsx` (NEW)
+- `frontend/src/components/export/ExportView.tsx` - Integration
+- `backend/api/routes.py` - New endpoint
 
 ---
 
-## **TASK 2.2 — Regenerate captions after manual trim**
+## **TASK 2.2 — Regenerate captions after manual trim** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* Whisper segment slicing
-* Rebuild caption VTT track
-* Resync video output
+* ✅ Whisper segment slicing (filter by time range)
+* ✅ Rebuild caption track (adjust timestamps relative to clip start)
+* ✅ Resync with video output (captions regenerated on export)
+
+**Implementation:**
+- `GET /projects/{media_id}/captions` endpoint:
+  - Takes start/end time range
+  - Filters transcript segments overlapping range
+  - Adjusts timestamps relative to clip start
+  - Returns ready-to-use caption data
+- `POST /projects/{media_id}/clip-range` endpoint:
+  - Validates time range
+  - Returns updated captions for new range
+  - Associates with highlight if provided
+- Frontend updates captions when clip boundaries change
+
+**Files Modified:**
+- `backend/api/routes.py` - Two new endpoints
+- `frontend/src/lib/api.ts` - API functions for captions
+- `frontend/src/components/export/ExportView.tsx` - Caption updates
 
 ---
 

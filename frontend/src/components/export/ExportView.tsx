@@ -15,12 +15,14 @@ import {
   Type,
   Play,
   Pause,
-  Volume2
+  Volume2,
+  Scissors
 } from 'lucide-react'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
 import { useProjectStore } from '@/store/project'
 import { Button } from '@/components/ui/Button'
-import { Platform, createClips, getDownloadUrl } from '@/lib/api'
+import { ClipRangeEditor } from '@/components/player/ClipRangeEditor'
+import { Platform, createClips, getDownloadUrl, updateClipRange } from '@/lib/api'
 
 const platformConfigs: Record<Platform, { 
   name: string
@@ -274,6 +276,7 @@ export function ExportView() {
     media,
     selectedHighlight,
     clipRange,
+    setClipRange,
     transcription,
     selectedPlatforms,
     togglePlatform,
@@ -289,6 +292,25 @@ export function ExportView() {
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<Record<Platform, 'pending' | 'processing' | 'complete'>>({} as any)
   const [error, setError] = useState<string | null>(null)
+  const [updatedCaptions, setUpdatedCaptions] = useState<any[]>([])
+  
+  // Handle clip range commit (when user finishes dragging handles)
+  const handleRangeCommit = async (start: number, end: number) => {
+    if (!media) return
+    
+    try {
+      const response = await updateClipRange(
+        media.id,
+        start,
+        end,
+        selectedHighlight?.id
+      )
+      // Update captions for the new range
+      setUpdatedCaptions(response.captions)
+    } catch (err) {
+      console.error('Failed to update clip range:', err)
+    }
+  }
   
   const range = clipRange || (selectedHighlight ? { start: selectedHighlight.start, end: selectedHighlight.end } : null)
   
@@ -366,6 +388,31 @@ export function ExportView() {
               title={selectedHighlight?.title || 'Custom Clip'}
               audiogramStyle={audiogramStyle}
             />
+          </div>
+          
+          {/* Clip Range Editor - Drag handles for adjusting boundaries */}
+          <div className="glass-card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Scissors className="w-4 h-4 text-nebula-violet" />
+              <h3 className="font-semibold text-star-white">Adjust Clip Boundaries</h3>
+            </div>
+            
+            <ClipRangeEditor
+              duration={media.duration}
+              clipRange={range}
+              onRangeChange={(start, end) => setClipRange(start, end)}
+              onRangeCommit={handleRangeCommit}
+              transcription={transcription?.segments}
+              minClipDuration={5}
+              maxClipDuration={180}
+            />
+            
+            {/* Show updated caption count */}
+            {updatedCaptions.length > 0 && (
+              <p className="text-xs text-star-white/40 mt-2">
+                {updatedCaptions.length} caption segments in selection
+              </p>
+            )}
           </div>
           
           {/* Audiogram style selector */}

@@ -409,6 +409,142 @@ async def create_clips(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/projects/{media_id}/captions")
+async def get_clip_captions(
+    media_id: str,
+    start: float = Query(..., description="Clip start time in seconds"),
+    end: float = Query(..., description="Clip end time in seconds"),
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """
+    Get captions/transcript segments for a specific time range.
+    
+    Used for:
+    - Regenerating captions after manual clip boundary adjustment
+    - Previewing captions for a clip before export
+    
+    Returns segments that overlap with the given time range,
+    with timestamps adjusted relative to clip start.
+    """
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    if not project.transcription:
+        raise HTTPException(status_code=404, detail="No transcription available")
+    
+    # Filter segments within range
+    segments = []
+    for seg in project.transcription.segments:
+        # Include segment if it overlaps with the range
+        if seg.end > start and seg.start < end:
+            # Calculate relative timestamps
+            relative_start = max(0, seg.start - start)
+            relative_end = min(end - start, seg.end - start)
+            
+            segments.append({
+                "id": seg.id,
+                "start": relative_start,
+                "end": relative_end,
+                "original_start": seg.start,
+                "original_end": seg.end,
+                "text": seg.text,
+                "speaker": seg.speaker,
+                "confidence": seg.confidence,
+            })
+    
+    return {
+        "media_id": media_id,
+        "clip_start": start,
+        "clip_end": end,
+        "clip_duration": end - start,
+        "segments": segments,
+        "segment_count": len(segments),
+    }
+
+
+@router.post("/projects/{media_id}/clip-range")
+async def update_clip_range(
+    media_id: str,
+    start: float = Query(..., description="New clip start time"),
+    end: float = Query(..., description="New clip end time"),
+    highlight_id: Optional[str] = Query(None, description="Associated highlight ID"),
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """
+    Update/save the current clip range selection.
+    
+    This endpoint:
+    - Validates the time range
+    - Optionally associates with a highlight
+    - Returns updated captions for the new range
+    
+    Used when user drags clip boundary handles to adjust timing.
+    """
+    user_id = current_user.id
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    # Validate range
+    if start < 0:
+        raise HTTPException(status_code=400, detail="Start time cannot be negative")
+    
+    if project.media and end > project.media.duration:
+        raise HTTPException(status_code=400, detail="End time exceeds media duration")
+    
+    if end <= start:
+        raise HTTPException(status_code=400, detail="End time must be greater than start time")
+    
+    duration = end - start
+    if duration < 5:
+        raise HTTPException(status_code=400, detail="Clip must be at least 5 seconds")
+    
+    if duration > 180:
+        raise HTTPException(status_code=400, detail="Clip cannot exceed 3 minutes")
+    
+    # Get captions for new range
+    captions = []
+    if project.transcription:
+        for seg in project.transcription.segments:
+            if seg.end > start and seg.start < end:
+                captions.append({
+                    "id": seg.id,
+                    "start": max(0, seg.start - start),
+                    "end": min(duration, seg.end - start),
+                    "text": seg.text,
+                    "speaker": seg.speaker,
+                })
+    
+    # Find matching highlight if ID provided
+    highlight_info = None
+    if highlight_id and project.highlights:
+        for h in project.highlights.highlights:
+            if h.id == highlight_id:
+                highlight_info = {
+                    "id": h.id,
+                    "title": h.title,
+                    "original_start": h.start,
+                    "original_end": h.end,
+                }
+                break
+    
+    return {
+        "media_id": media_id,
+        "start": start,
+        "end": end,
+        "duration": duration,
+        "highlight": highlight_info,
+        "captions": captions,
+        "caption_count": len(captions),
+    }
+
+
 @router.get("/projects", response_model=list[dict])
 async def list_projects(
     include_archived: bool = Query(False),
