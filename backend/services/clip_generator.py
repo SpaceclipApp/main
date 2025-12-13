@@ -149,11 +149,14 @@ class ClipGenerator:
                 if str(existing.id) == clip_id:
                     logger.info(f"Duplicate clip detected, returning existing: {clip_id}")
                     # Return existing clip as ClipResult
+                    # Use stored timestamps if available, fall back to current request
                     return ClipResult(
                         id=str(existing.id),
                         media_id=str(existing.media_id),
                         platform=Platform(existing.platform),
                         file_path=existing.file_path,
+                        start=getattr(existing, 'start_time', None) or start,
+                        end=getattr(existing, 'end_time', None) or end,
                         duration=existing.duration,
                         width=existing.width,
                         height=existing.height,
@@ -176,6 +179,8 @@ class ClipGenerator:
             media_id=media.id,
             platform=platform,
             file_path=str(output_path),
+            start=start,  # Absolute timestamp in source media
+            end=end,      # Absolute timestamp in source media
             duration=end - start,
             width=spec.width,
             height=spec.height,

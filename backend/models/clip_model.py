@@ -30,6 +30,13 @@ class ClipModel(Base):
     )
     platform: Mapped[str] = mapped_column(String)  # instagram_reels, tiktok, etc.
     file_path: Mapped[str] = mapped_column(String)
+    
+    # Absolute timestamps in source media (Task 2.5.2: Fix clip time semantics)
+    # These are ABSOLUTE timestamps relative to the source media timeline,
+    # not relative to the clip itself. This allows proper display of clip origin.
+    start_time: Mapped[float | None] = mapped_column(Float, nullable=True)  # Seconds from media start
+    end_time: Mapped[float | None] = mapped_column(Float, nullable=True)    # Seconds from media start
+    
     duration: Mapped[float] = mapped_column(Float)
     width: Mapped[int] = mapped_column(Integer)
     height: Mapped[int] = mapped_column(Integer)

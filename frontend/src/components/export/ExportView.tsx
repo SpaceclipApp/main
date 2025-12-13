@@ -692,6 +692,10 @@ export function ExportView() {
                       <div className="flex-1">
                         <p className="text-sm text-star-white">{config?.name || clip.platform}</p>
                         <p className="text-xs text-star-white/40">
+                          {/* Show absolute source timestamps if available (Task 2.5.2) */}
+                          {clip.start != null && clip.end != null ? (
+                            <>{formatTime(clip.start)} - {formatTime(clip.end)} • </>
+                          ) : null}
                           {clip.width}x{clip.height} • {formatDuration(clip.duration)}
                         </p>
                       </div>

@@ -150,7 +150,14 @@ class ClipResult(BaseModel):
     media_id: str
     platform: Platform
     file_path: str
-    duration: float
+    
+    # Absolute timestamps in source media (Task 2.5.2: Fix clip time semantics)
+    # These are ABSOLUTE timestamps relative to the source media timeline.
+    # Optional for backwards compatibility with existing clips.
+    start: Optional[float] = None  # Seconds from media start (absolute)
+    end: Optional[float] = None    # Seconds from media start (absolute)
+    
+    duration: float  # Clip duration (end - start)
     width: int
     height: int
     has_captions: bool

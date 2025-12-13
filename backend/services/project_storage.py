@@ -259,6 +259,8 @@ class ProjectStorage:
                         media_id=media_id,
                         platform=clip.platform.value if hasattr(clip.platform, 'value') else clip.platform,
                         file_path=clip.file_path,
+                        start_time=clip.start,  # Absolute timestamp in source media
+                        end_time=clip.end,      # Absolute timestamp in source media
                         duration=clip.duration,
                         width=clip.width,
                         height=clip.height,

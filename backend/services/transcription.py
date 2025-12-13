@@ -481,6 +481,37 @@ class TranscriptionService:
             logger.warning("Diarization failed, using fallback speaker detection")
             await self._apply_fallback_speakers(transcription_result)
         
+        # Task 2.5.6: Infer speaker names from content
+        # Convert to dict format for name inference
+        segment_dicts = [
+            {
+                "id": seg.id,
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+                "speaker": seg.speaker,
+                "confidence": seg.confidence
+            }
+            for seg in transcription_result.segments
+        ]
+        
+        # Try to infer speaker names
+        try:
+            speaker_names = self.diarization.infer_speaker_names(segment_dicts)
+            
+            if speaker_names:
+                logger.info(f"Inferred speaker names: {speaker_names}")
+                
+                # Apply the names
+                self.diarization.apply_speaker_names(segment_dicts, speaker_names)
+                
+                # Update the segments with new speaker names
+                for seg, seg_dict in zip(transcription_result.segments, segment_dicts):
+                    seg.speaker = seg_dict.get("speaker")
+        except Exception as e:
+            logger.warning(f"Speaker name inference failed: {e}")
+            # Continue without inferred names - generic labels are fine
+        
         return transcription_result
     
     async def _apply_fallback_speakers(self, result: TranscriptionResult):

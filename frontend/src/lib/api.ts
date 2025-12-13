@@ -176,6 +176,10 @@ export interface ClipResult {
   media_id: string
   platform: string
   file_path: string
+  // Absolute timestamps in source media (Task 2.5.2: Fix clip time semantics)
+  // Optional for backwards compatibility with existing clips
+  start: number | null  // Seconds from media start (absolute)
+  end: number | null    // Seconds from media start (absolute)
   duration: number
   width: number
   height: number

@@ -301,6 +301,163 @@ class SpeakerDiarization:
                 trans_seg["speaker"] = best_speaker
         
         return transcript_segments
+    
+    def infer_speaker_names(
+        self,
+        transcript_segments: list[dict],
+        min_confidence: float = 0.7
+    ) -> dict[str, str]:
+        """
+        Infer speaker names from self-identification phrases in the transcript.
+        
+        Task 2.5.6: Speaker name inference
+        - Detects phrases like "I'm Tony", "This is Zach", "My name is..."
+        - Maps generic speaker labels to inferred names
+        - Never hallucinates names - only uses explicitly stated names
+        
+        Args:
+            transcript_segments: List of transcript segments with speaker labels
+            min_confidence: Minimum confidence threshold (based on pattern strength)
+        
+        Returns:
+            Mapping of generic speaker labels to inferred names
+            e.g., {"Speaker 1": "Tony", "Speaker 2": "Zach"}
+        """
+        import re
+        
+        # Patterns for self-identification (with capture groups for names)
+        # These are conservative patterns that require explicit name statements
+        identification_patterns = [
+            # "I'm X" / "I am X"
+            (r"\b(?:i'?m|i am)\s+([A-Z][a-z]{2,15})\b", 0.9),
+            # "My name is X"
+            (r"\bmy name is\s+([A-Z][a-z]{2,15})\b", 0.95),
+            # "This is X" (at start of segment, often podcast intros)
+            (r"^(?:hey,?\s+)?this is\s+([A-Z][a-z]{2,15})\b", 0.85),
+            # "X here" (common podcast intro)
+            (r"^([A-Z][a-z]{2,15})\s+here\b", 0.8),
+            # "Call me X"
+            (r"\bcall me\s+([A-Z][a-z]{2,15})\b", 0.85),
+        ]
+        
+        # Patterns for third-party introduction
+        # "Welcome X" / "Thanks X" / "Here's X"
+        introduction_patterns = [
+            (r"\bwelcome(?:,| back)?\s+([A-Z][a-z]{2,15})\b", 0.7),
+            (r"\bthank(?:s| you),?\s+([A-Z][a-z]{2,15})\b", 0.65),
+            (r"\bhere(?:'s| is)\s+([A-Z][a-z]{2,15})\b", 0.7),
+        ]
+        
+        # Names to ignore (common false positives)
+        ignore_names = {
+            'Thanks', 'Thank', 'Hello', 'Welcome', 'Sorry', 'Sure', 'Well',
+            'Okay', 'Right', 'Actually', 'Really', 'Definitely', 'Absolutely',
+            'Yeah', 'Yes', 'No', 'Now', 'So', 'Look', 'See', 'Here', 'There'
+        }
+        
+        # Collect name candidates per speaker
+        speaker_candidates: dict[str, list[tuple[str, float, float]]] = {}  # speaker -> [(name, confidence, time)]
+        
+        for seg in transcript_segments:
+            speaker = seg.get("speaker")
+            text = seg.get("text", "")
+            start_time = seg.get("start", 0)
+            
+            if not speaker or not text:
+                continue
+            
+            # Check self-identification patterns
+            for pattern, base_confidence in identification_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    # Normalize name (capitalize first letter)
+                    name = match.strip().capitalize()
+                    
+                    # Skip ignored names
+                    if name in ignore_names:
+                        continue
+                    
+                    # Add to candidates
+                    if speaker not in speaker_candidates:
+                        speaker_candidates[speaker] = []
+                    
+                    # Boost confidence if early in content (more likely intro)
+                    time_boost = 0.1 if start_time < 60 else 0.0
+                    confidence = min(1.0, base_confidence + time_boost)
+                    
+                    speaker_candidates[speaker].append((name, confidence, start_time))
+            
+            # Check introduction patterns (name comes from OTHER speaker)
+            for pattern, base_confidence in introduction_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    name = match.strip().capitalize()
+                    
+                    if name in ignore_names:
+                        continue
+                    
+                    # This speaker is introducing someone else
+                    # We need to find who they're talking to
+                    # Look for the next segment from a different speaker
+                    seg_idx = transcript_segments.index(seg)
+                    for next_seg in transcript_segments[seg_idx + 1:seg_idx + 5]:
+                        next_speaker = next_seg.get("speaker")
+                        if next_speaker and next_speaker != speaker:
+                            if next_speaker not in speaker_candidates:
+                                speaker_candidates[next_speaker] = []
+                            speaker_candidates[next_speaker].append((name, base_confidence * 0.9, start_time))
+                            break
+        
+        # Determine final name mapping
+        speaker_names: dict[str, str] = {}
+        
+        for speaker, candidates in speaker_candidates.items():
+            if not candidates:
+                continue
+            
+            # Count occurrences of each name
+            name_scores: dict[str, float] = {}
+            for name, confidence, _ in candidates:
+                if name not in name_scores:
+                    name_scores[name] = 0
+                name_scores[name] += confidence
+            
+            # Find the best name
+            best_name = max(name_scores.items(), key=lambda x: x[1])
+            
+            # Only use if confidence is high enough
+            # Normalize by number of potential mentions
+            avg_confidence = best_name[1] / max(len([c for c in candidates if c[0] == best_name[0]]), 1)
+            
+            if avg_confidence >= min_confidence:
+                speaker_names[speaker] = best_name[0]
+                logger.info(f"Inferred speaker name: {speaker} -> {best_name[0]} (confidence: {avg_confidence:.2f})")
+            else:
+                logger.debug(f"Name inference for {speaker} below threshold: {best_name[0]} ({avg_confidence:.2f})")
+        
+        return speaker_names
+    
+    def apply_speaker_names(
+        self,
+        transcript_segments: list[dict],
+        speaker_names: dict[str, str]
+    ) -> list[dict]:
+        """
+        Apply inferred speaker names to transcript segments.
+        
+        Args:
+            transcript_segments: Segments with generic speaker labels
+            speaker_names: Mapping of generic labels to names
+        
+        Returns:
+            Segments with updated speaker names
+        """
+        for seg in transcript_segments:
+            speaker = seg.get("speaker")
+            if speaker and speaker in speaker_names:
+                seg["speaker"] = speaker_names[speaker]
+        
+        return transcript_segments
 
 
 # Singleton instance

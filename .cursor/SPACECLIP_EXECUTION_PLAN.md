@@ -13,7 +13,7 @@
 
 **Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
 **Phase 2 Progress:** 2/2 tasks completed (100%) ✅ **PHASE 2 COMPLETE!**
-**Phase 2.5 Progress:** 5/10 tasks completed (50%) - 5 auto tasks done, 5 require confirmation
+**Phase 2.5 Progress:** 9/10 tasks completed (90%) - All opus-4.5 tasks done, 1 task remaining (2.5.9 Auth surface cleanup)
 
 **✅ Phase 1 Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
@@ -42,11 +42,13 @@
 - Task 2.5.8 — Template visibility (read-only) ✅ **COMPLETED**
 - Task 2.5.10 — Processing transparency (trust-critical) ✅ **JUST COMPLETED**
 
-**⏸️ Phase 2.5 Pending (Require Confirmation):**
-- Task 2.5.2 — Fix clip time semantics (opus-4.5, confirmation required)
-- Task 2.5.4 — Highlight timing alignment bug (opus-4.5, confirmation required)
-- Task 2.5.5 — Improve highlight discovery quality (opus-4.5, confirmation required)
-- Task 2.5.6 — Speaker name inference (opus-4.5, confirmation required)
+**✅ Phase 2.5 Completed Tasks (Opus-4.5):**
+- Task 2.5.2 — Fix clip time semantics ✅ **COMPLETED**
+- Task 2.5.4 — Highlight timing alignment bug ✅ **COMPLETED**
+- Task 2.5.5 — Improve highlight discovery quality ✅ **COMPLETED**
+- Task 2.5.6 — Speaker name inference ✅ **COMPLETED**
+
+**⏸️ Phase 2.5 Pending:**
 - Task 2.5.9 — Auth surface cleanup (auto, confirmation required)
 
 **📝 Next Up:**
@@ -587,15 +589,12 @@ Restores user trust in basic project management actions.
 
 ---
 
-### **TASK 2.5.2 — Fix clip time semantics**
+### **TASK 2.5.2 — Fix clip time semantics** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
-status: ⏳ PLANNED
-⚠️ EXECUTION REQUIREMENT:
-This task must be executed in a fresh context using opus-4.5.
-If the active model is not opus-4.5, STOP and ask for confirmation.
+status: ✅ COMPLETED
 ```
 
 **Problem:**
@@ -603,21 +602,33 @@ Clips display incorrect timestamps (e.g. `0:00–0:15`) even when the clip occur
 
 **Actions:**
 
-* Normalize clip data model:
+* ✅ Normalize clip data model:
+  * ✅ Store **absolute media timestamps** for clips (`start_time`, `end_time`)
+  * ✅ Derive relative timestamps only for export/render
+* ✅ Update UI to display true `start → end` times
+* ✅ Remove hard-coded 15s assumptions across clip UI
+* ✅ **Migration strategy**: Handle existing clips with relative timestamps (nullable fields)
 
-  * Store **absolute media timestamps** for clips
-  * Derive relative timestamps only for export/render
-* Update UI to display true `start → end` times
-* Remove hard-coded 15s assumptions across clip UI
-* **Migration strategy**: Handle existing clips with relative timestamps
+**Implementation:**
+- Added `start_time` and `end_time` fields to `ClipModel` (nullable for backwards compatibility)
+- Added `start` and `end` fields to `ClipResult` Pydantic schema
+- Updated `clip_generator.py` to return absolute timestamps in `ClipResult`
+- Updated `project_storage.py` to persist start/end times to database
+- Created migration `003_add_clip_timestamps.py`
+- Updated frontend `ClipResult` type with `start` and `end` fields
+- Updated `ExportView.tsx` to display absolute timestamps for downloaded clips
+
+**Files Modified:**
+- `backend/models/clip_model.py` - Added `start_time`, `end_time` columns
+- `backend/models/schemas.py` - Added `start`, `end` to `ClipResult`
+- `backend/services/clip_generator.py` - Return absolute timestamps
+- `backend/services/project_storage.py` - Persist timestamps
+- `backend/alembic/versions/003_add_clip_timestamps.py` - Migration
+- `frontend/src/lib/api.ts` - Added `start`, `end` to `ClipResult`
+- `frontend/src/components/export/ExportView.tsx` - Display timestamps
 
 **Impact:**
 Fixes a major credibility issue and aligns UI with actual media behavior.
-
-**Why opus-4.5 + confirmation:**
-- Changes core data model (absolute vs relative timestamps)
-- Requires migration strategy for existing clips
-- Could break existing exports/clips if not handled carefully
 
 ---
 
@@ -659,15 +670,12 @@ Restores creative control and aligns with user mental model.
 
 ---
 
-### **TASK 2.5.4 — Highlight timing alignment bug**
+### **TASK 2.5.4 — Highlight timing alignment bug** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
-status: ⏳ PLANNED
-⚠️ EXECUTION REQUIREMENT:
-This task must be executed in a fresh context using opus-4.5.
-If the active model is not opus-4.5, STOP and ask for confirmation.
+status: ✅ COMPLETED
 ```
 
 **Problem:**
@@ -675,22 +683,35 @@ Some highlights default to the start of the source media instead of their true p
 
 **Actions:**
 
-* Validate highlight timestamps at creation time
-* Ensure highlight offsets correctly map to absolute media timeline
-* Add sanity checks before clip generation
-* **Data integrity**: Fix existing highlights with invalid timestamps
+* ✅ Validate highlight timestamps at creation time
+* ✅ Ensure highlight offsets correctly map to absolute media timeline
+* ✅ Add sanity checks before clip generation
+* ✅ **Data integrity**: Fix existing highlights with invalid timestamps
+
+**Implementation:**
+- Rewrote `_parse_highlights()` in highlight_detector.py:
+  - No more default fallbacks to 0:00/0:30
+  - Rejects highlights without timestamps
+  - Auto-corrects 0-based times by adding chunk offset
+  - Clamps timestamps to valid segment range
+  - Rejects invalid ranges after correction
+- Added `validate_and_fix_highlights()` utility method for existing highlights
+- Added sanity checks in `/clips` endpoint:
+  - Validates start >= 0
+  - Validates end <= media duration
+  - Validates start < end
+  - Validates minimum duration >= 1s
+
+**Files Modified:**
+- `backend/services/highlight_detector.py` - Timestamp validation and correction
+- `backend/api/routes.py` - Sanity checks before clip generation
 
 **Impact:**
 Prevents invalid clips and downstream export errors.
 
-**Why opus-4.5 + confirmation:**
-- Fixes core data integrity issue affecting highlights
-- Requires validation logic and potentially data migration
-- Could affect existing projects with bad highlight data
-
 ---
 
-### **TASK 2.5.5 — Improve highlight discovery quality**
+### **TASK 2.5.5 — Improve highlight discovery quality** ✅ **COMPLETED**
 
 **Dependency:**
 This task assumes Task 2.5.10 (Processing transparency) is complete,
@@ -702,7 +723,7 @@ requires: human-confirmation
 ⚠️ EXECUTION REQUIREMENT:
 This task must be executed in a fresh context using opus-4.5.
 If the active model is not opus-4.5, STOP and ask for confirmation.
-status: ⏳ PLANNED
+status: ✅ COMPLETED
 ```
 
 **Problem:**
@@ -725,15 +746,12 @@ Produces consistently useful highlights instead of “lucky hits.”
 
 ---
 
-### **TASK 2.5.6 — Speaker name inference**
+### **TASK 2.5.6 — Speaker name inference** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
-⚠️ EXECUTION REQUIREMENT:
-This task must be executed in a fresh context using opus-4.5.
-If the active model is not opus-4.5, STOP and ask for confirmation.
-status: ⏳ PLANNED
+status: ✅ COMPLETED
 ```
 
 **Problem:**
@@ -897,19 +915,19 @@ Processing UI displays misleading percent-based progress that does not reflect r
 - **2.5.8** - Template visibility (read-only UI gallery) ✅
 - **2.5.10** - Processing transparency (trust-critical) ✅
 
-### **Tasks Using `opus-4.5` Model (Requires Human Confirmation):**
-- **2.5.2** - Fix clip time semantics ⚠️ **CONFIRMATION REQUIRED**
-  - Changes core data model (absolute vs relative timestamps)
-  - Requires migration strategy for existing clips
-- **2.5.4** - Highlight timing alignment bug ⚠️ **CONFIRMATION REQUIRED**
-  - Fixes data integrity issue affecting highlights
-  - May require data migration
-- **2.5.5** - Improve highlight discovery quality ⚠️ **CONFIRMATION REQUIRED**
-  - Complex AI/ML algorithm changes
-  - Affects core highlight quality
-- **2.5.6** - Speaker name inference ⚠️ **CONFIRMATION REQUIRED**
-  - NLP/pattern matching logic
-  - Must never hallucinate names
+### **Tasks Using `opus-4.5` Model (Completed):**
+- **2.5.2** - Fix clip time semantics ✅ **COMPLETED**
+  - Added absolute timestamps to clip data model
+  - Migration created for existing clips
+- **2.5.4** - Highlight timing alignment bug ✅ **COMPLETED**
+  - Added timestamp validation and correction
+  - Added sanity checks before clip generation
+- **2.5.5** - Improve highlight discovery quality ✅ **COMPLETED**
+  - Added signal detection (emphasis, dialogue, sentiment)
+  - Added diversity constraints and minimum density heuristics
+- **2.5.6** - Speaker name inference ✅ **COMPLETED**
+  - Added conservative name detection patterns
+  - Integrated into transcription pipeline with fallback
 
 ### **Tasks Using `auto` Model (But Requires Confirmation):**
 - **2.5.9** - Auth surface cleanup ⚠️ **CONFIRMATION REQUIRED**

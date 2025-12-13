@@ -365,6 +365,33 @@ async def create_clips(
     if not project:
         raise HTTPException(status_code=404, detail="Media not found")
     
+    # Task 2.5.4: Sanity checks before clip generation
+    # Validate clip timestamps are within media bounds
+    if request.start < 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Clip start time cannot be negative: {request.start}"
+        )
+    
+    if project.media and request.end > project.media.duration:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Clip end time ({request.end}s) exceeds media duration ({project.media.duration}s)"
+        )
+    
+    if request.start >= request.end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Clip start time ({request.start}s) must be before end time ({request.end}s)"
+        )
+    
+    clip_duration = request.end - request.start
+    if clip_duration < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Clip duration must be at least 1 second, got {clip_duration}s"
+        )
+    
     # Get captions for the clip range if requested
     captions = None
     if request.include_captions and project.transcription:
