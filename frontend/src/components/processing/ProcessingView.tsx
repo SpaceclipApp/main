@@ -15,6 +15,63 @@ const steps = [
   { id: 'complete', label: 'Ready to clip!', icon: Wand2 },
 ]
 
+/**
+ * Parse status message to extract chunk progress (e.g., "Transcribing chunk 2/5")
+ * Returns { current: number, total: number } or null if not found
+ */
+function parseChunkProgress(message: string | null): { current: number; total: number } | null {
+  if (!message) return null
+  
+  // Match patterns like "chunk 2/5" or "clip 3/6"
+  const match = message.match(/(?:chunk|clip)\s+(\d+)\s*\/\s*(\d+)/i)
+  if (match) {
+    return {
+      current: parseInt(match[1], 10),
+      total: parseInt(match[2], 10),
+    }
+  }
+  
+  return null
+}
+
+/**
+ * Determine processing stage from status
+ */
+function getStageFromStatus(status: string): {
+  stage: 'downloading' | 'chunking' | 'transcribing' | 'analyzing' | 'highlighting' | 'generating' | 'complete' | 'error' | 'unknown'
+  isIndeterminate: boolean
+} {
+  const statusLower = status.toLowerCase()
+  
+  if (statusLower === 'pending' || statusLower === 'downloading') {
+    return { stage: 'downloading', isIndeterminate: true }
+  }
+  if (statusLower === 'transcribing') {
+    // Check if chunking is mentioned
+    if (statusLower.includes('chunk')) {
+      return { stage: 'chunking', isIndeterminate: false }
+    }
+    return { stage: 'transcribing', isIndeterminate: true }
+  }
+  if (statusLower === 'analyzing') {
+    if (statusLower.includes('highlight')) {
+      return { stage: 'highlighting', isIndeterminate: true }
+    }
+    return { stage: 'analyzing', isIndeterminate: true }
+  }
+  if (statusLower.includes('generating') || statusLower.includes('clip')) {
+    return { stage: 'generating', isIndeterminate: false }
+  }
+  if (statusLower === 'complete') {
+    return { stage: 'complete', isIndeterminate: false }
+  }
+  if (statusLower === 'error') {
+    return { stage: 'error', isIndeterminate: false }
+  }
+  
+  return { stage: 'unknown', isIndeterminate: true }
+}
+
 export function ProcessingView() {
   const { 
     media, 
@@ -31,8 +88,10 @@ export function ProcessingView() {
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number } | null>(null)
+  const [currentStage, setCurrentStage] = useState<'downloading' | 'chunking' | 'transcribing' | 'analyzing' | 'highlighting' | 'generating' | 'complete' | 'error' | 'unknown'>('unknown')
+  const [isIndeterminate, setIsIndeterminate] = useState(true)
   const [elapsedTime, setElapsedTime] = useState(0)
-  const [estimatedTime, setEstimatedTime] = useState<number | null>(null)
   const processingRef = useRef(false)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const startTimeRef = useRef<number>(Date.now())
@@ -45,16 +104,6 @@ export function ProcessingView() {
     return () => clearInterval(timer)
   }, [])
   
-  // Estimate processing time based on media duration
-  useEffect(() => {
-    if (media?.duration) {
-      // Rough estimate: ~1-2 minutes per minute of audio for transcription + analysis
-      // For long content, estimate conservatively
-      const estimatedSeconds = Math.ceil(media.duration * 1.5) + 60
-      setEstimatedTime(estimatedSeconds)
-    }
-  }, [media?.duration])
-  
   // Status polling function
   const pollStatus = useCallback(async () => {
     if (!media) return
@@ -62,12 +111,31 @@ export function ProcessingView() {
     try {
       const status = await getProjectStatus(media.id)
       
-      // Update progress and message from server
-      setProcessing(status.status_message || `Status: ${status.status}`, status.progress)
-      setStatusMessage(status.status_message)
+      // Parse status message for chunk progress
+      const chunkInfo = parseChunkProgress(status.status_message)
+      setChunkProgress(chunkInfo)
+      
+      // Determine stage and whether progress is quantifiable
+      const stageInfo = getStageFromStatus(status.status)
+      setCurrentStage(stageInfo.stage)
+      setIsIndeterminate(stageInfo.isIndeterminate && !chunkInfo)
+      
+      // Update status message (use backend message if available, otherwise derive from status)
+      const displayMessage = status.status_message || 
+        (status.status === 'transcribing' ? 'Transcribing audio...' :
+         status.status === 'analyzing' ? 'Finding highlights...' :
+         status.status === 'downloading' ? 'Downloading media...' :
+         status.status === 'complete' ? 'Processing complete!' :
+         `Status: ${status.status}`)
+      setStatusMessage(displayMessage)
+      
+      // Update store with status (but don't use fake progress values)
+      // Only use backend progress if it's meaningful (not 0 or 1 when indeterminate)
+      const meaningfulProgress = (!stageInfo.isIndeterminate || chunkInfo) ? status.progress : undefined
+      setProcessing(displayMessage, meaningfulProgress ?? 0)
       
       // Update current step based on status
-      if (status.status === 'transcribing') {
+      if (status.status === 'transcribing' || status.status === 'downloading') {
         setCurrentStep(0)
       } else if (status.status === 'analyzing') {
         setCurrentStep(1)
@@ -133,19 +201,19 @@ export function ProcessingView() {
     const process = async () => {
       try {
         // Step 1: Transcribe (skip if already done)
-        setProcessing('Transcribing audio...', 0.2)
         setCurrentStep(0)
+        setCurrentStage('transcribing')
+        setIsIndeterminate(true)
         
         let transcription = existingTranscription
         if (!transcription) {
-          // Show estimate for long content
-          if (media.duration > 600) { // > 10 minutes
-            setProcessing('Transcribing long audio (this may take several minutes)...', 0.2)
-            setStatusMessage('Processing long-form content in chunks...')
-          }
-          
-          // Start polling for status updates
+          // Start polling for status updates immediately
+          // This will show real backend status messages
           pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
+          
+          // Initial status message (will be overridden by polling)
+          setStatusMessage('Starting transcription...')
+          setProcessing('Starting transcription...', 0)
           
           transcription = await transcribeMedia(media.id)
           setTranscription(transcription)
@@ -158,9 +226,11 @@ export function ProcessingView() {
         }
         
         // Step 2: Analyze highlights
-        setProcessing('Finding highlights with AI...', 0.6)
-        setStatusMessage('Analyzing content for highlights...')
         setCurrentStep(1)
+        setCurrentStage('analyzing')
+        setIsIndeterminate(true)
+        setStatusMessage('Finding highlights with AI...')
+        setProcessing('Finding highlights with AI...', 0)
         
         // Request more highlights for longer content
         const highlightCount = media.duration > 1800 ? 20 : media.duration > 600 ? 15 : 10
@@ -173,9 +243,11 @@ export function ProcessingView() {
         setHighlights(highlights)
         
         // Complete
-        setProcessing('Complete!', 1)
-        setStatusMessage('Processing complete!')
         setCurrentStep(2)
+        setCurrentStage('complete')
+        setIsIndeterminate(false)
+        setStatusMessage('Processing complete!')
+        setProcessing('Processing complete!', 1)
         
         // Wait a moment before transitioning
         setTimeout(() => {
@@ -204,6 +276,8 @@ export function ProcessingView() {
         }
         
         setError(displayError)
+        setCurrentStage('error')
+        setIsIndeterminate(false)
         setProcessing('Error', 0)
         processingRef.current = false
       }
@@ -216,11 +290,15 @@ export function ProcessingView() {
     processingRef.current = false
     setError(null)
     setCurrentStep(0)
+    setCurrentStage('unknown')
+    setIsIndeterminate(true)
+    setChunkProgress(null)
     startTimeRef.current = Date.now()
     setElapsedTime(0)
     // Re-trigger processing
     const currentMedia = media
     if (currentMedia) {
+      setStatusMessage('Retrying...')
       setProcessing('Retrying...', 0)
       window.location.reload()
     }
@@ -320,9 +398,14 @@ export function ProcessingView() {
                     {step.label}
                   </p>
                   {isActive && !error && (
-                    <p className="text-star-white/40 text-xs mt-0.5">
-                      {statusMessage || processingStatus}
-                    </p>
+                    <div className="text-star-white/40 text-xs mt-0.5">
+                      <p>{statusMessage || processingStatus}</p>
+                      {chunkProgress && (
+                        <p className="mt-1 font-mono">
+                          {chunkProgress.current} / {chunkProgress.total}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
                 
@@ -342,24 +425,57 @@ export function ProcessingView() {
           })}
         </div>
         
-        {/* Progress bar */}
+        {/* Stage indicator and progress */}
         <div className="mt-8">
-          <div className="h-2 bg-void-800 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-nebula-purple to-nebula-violet"
-              initial={{ width: '0%' }}
-              animate={{ width: `${progress * 100}%` }}
-              transition={{ duration: 0.5 }}
-            />
-          </div>
-          <div className="flex justify-between items-center mt-2 text-sm">
-            <span className="text-star-white/40">
-              {Math.round(progress * 100)}% complete
+          {/* Stage label */}
+          <div className="flex justify-between items-center mb-2 text-sm">
+            <span className="text-star-white/60 capitalize">
+              {currentStage === 'chunking' ? 'Transcribing' :
+               currentStage === 'highlighting' ? 'Finding highlights' :
+               currentStage === 'generating' ? 'Generating clips' :
+               currentStage === 'downloading' ? 'Downloading' :
+               currentStage === 'transcribing' ? 'Transcribing' :
+               currentStage === 'analyzing' ? 'Analyzing' :
+               currentStage === 'complete' ? 'Complete' :
+               currentStage === 'error' ? 'Error' :
+               'Working...'}
+              {chunkProgress && ` (${chunkProgress.current}/${chunkProgress.total})`}
             </span>
             <span className="text-star-white/40 font-mono">
               {formatElapsed(elapsedTime)}
             </span>
           </div>
+          
+          {/* Progress bar - only show if progress is quantifiable */}
+          {!isIndeterminate && chunkProgress ? (
+            <div className="h-2 bg-void-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-nebula-purple to-nebula-violet"
+                initial={{ width: '0%' }}
+                animate={{ width: `${(chunkProgress.current / chunkProgress.total) * 100}%` }}
+                transition={{ duration: 0.3 }}
+              />
+            </div>
+          ) : isIndeterminate ? (
+            <div className="h-2 bg-void-800 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-nebula-purple to-nebula-violet"
+                animate={{
+                  x: ['-100%', '100%'],
+                }}
+                transition={{
+                  duration: 1.5,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }}
+                style={{ width: '30%' }}
+              />
+            </div>
+          ) : currentStage === 'complete' ? (
+            <div className="h-2 bg-void-800 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-aurora-green to-aurora-green/80 w-full" />
+            </div>
+          ) : null}
         </div>
         
         {/* Error state */}
