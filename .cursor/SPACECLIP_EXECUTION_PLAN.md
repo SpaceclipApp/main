@@ -875,7 +875,7 @@ Simplifies onboarding and improves enterprise trust perception.
 
 ---
 
-### **TASK 2.5.10 — Processing transparency (trust-critical)** ✅ **COMPLETED**
+### **TASK 2.5.10 — Processing transparency & job acknowledgment (trust-critical)** ✅ **COMPLETED**
 
 ```
 model: auto
@@ -883,7 +883,16 @@ status: ✅ COMPLETED
 ```
 
 **Problem:**
-Processing UI displays misleading percent-based progress that does not reflect real backend state, causing users to believe the app is stalled or inaccurate.
+Users cannot tell whether downloading, transcription, highlight analysis, or clip generation is actively happening. This causes:
+- Duplicate requests from users clicking multiple times
+- Perceived slowness (no acknowledgment of work in progress)
+- Loss of trust (UI appears idle while backend is working)
+- Backend overload from accidental retries
+
+**Explicitly noted:**
+- Backend jobs are running correctly
+- UI does not sufficiently acknowledge job start or phase transitions
+- Speed is NOT being optimized in this task
 
 **Actions:**
 
@@ -935,6 +944,110 @@ Processing UI displays misleading percent-based progress that does not reflect r
   - May impact signup conversion rates
 
 **Note:** Tasks 2.5.2, 2.5.4, 2.5.5, 2.5.6, and 2.5.9 all require human confirmation before execution due to their impact on data integrity, core functionality, or user experience.
+
+---
+
+### TASK 2.5.10 — Processing Transparency & Semantic Status UI
+
+model: auto  
+status: IN PROGRESS  
+
+Problem:
+Processing UI shows redundant, conflicting, or missing information:
+- Duration unknown sources (X Spaces) display misleading `0`
+- Status labels repeat the same concept multiple times
+- Chunk progress exists but is not consistently rendered
+- Important signals (language detection) are hidden in logs
+- UI appears static while backend is active
+
+Actions:
+- Establish ONE authoritative status message source (`status_message`)
+- Demote static labels to visual scaffolding only
+- Render chunk progress whenever available:
+  - Chunk X/Y
+  - Percentage if provided
+- Display detected language when available
+- Replace fake duration (`0`) with “duration unknown” until decoded
+- Add soft ETA messaging (non-binding, text-only)
+- Never invent progress or time remaining
+
+Explicitly out of scope:
+- No backend optimizations
+- No ETA countdown timers
+- No job deduplication
+- No performance changes
+
+Exit criteria:
+- UI updates visibly every time backend status changes
+- Users never see “0” for unknown values
+- Chunk progress shown whenever backend provides it
+- No duplicated semantic labels (“transcribing” shown once)
+
+---
+
+### TASK 2.5.11 — Processing UI De-duplication & Signal Surfacing
+
+model: auto  
+status: PLANNED  
+
+Actions:
+- Remove duplicate semantic labels (stage vs title vs message)
+- Ensure `status_message` always wins render priority
+- Surface:
+  - detected language
+  - chunk range (e.g. 10:00–20:00)
+- Ensure progress UI is stable across hot reloads
+
+---
+
+### TASK 2.5.12 — Persistent Processing Queue (Refresh-Safe) ✅ **COMPLETED**
+
+model: auto  
+status: ✅ COMPLETED  
+
+Problem:
+After a page refresh, users lose visibility into in-progress jobs and
+cannot tell whether projects are still processing.
+
+Actions:
+- Add a persistent “Processing Queue” UI surface
+- Populate it from projects with active statuses:
+  PENDING, DOWNLOADING, TRANSCRIBING, ANALYZING
+- Display:
+  - Project title
+  - Current stage
+  - Chunk progress if available
+- Allow click-through to project
+- On app load:
+  - Rehydrate queue from backend
+  - Resume polling only for active jobs
+- Remove items from queue automatically when COMPLETE or ERROR
+
+Constraints:
+- Do not create a new backend queue
+- Do not add WebSockets
+- Do not introduce global job state
+- Use existing project status endpoints only
+
+Exit criteria:
+- ✅ Refreshing the page never hides active processing work
+- ✅ Users can always see what is running and why
+
+**Implementation:**
+- Created `ProcessingQueue` component as fixed bottom-right panel
+- Derives queue from `listProjects()` API response
+- Filters for active statuses: pending, downloading, transcribing, analyzing
+- Polls `/projects/{media_id}/status` every 3s for each active project
+- Automatically removes items when status becomes COMPLETE or ERROR
+- Displays project title, status_message, and chunk progress
+- Click-through navigates to project and sets step to 'processing'
+- Rehydrates on app load and when auth state changes
+- Stops polling immediately when projects complete or error
+
+**Files Modified:**
+- `frontend/src/components/processing/ProcessingQueue.tsx` — New component
+- `frontend/src/app/page.tsx` — Added ProcessingQueue to layout
+
 
 ---
 

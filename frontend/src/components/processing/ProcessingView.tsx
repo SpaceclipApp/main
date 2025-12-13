@@ -16,18 +16,50 @@ const steps = [
 ]
 
 /**
- * Parse status message to extract chunk progress (e.g., "Transcribing chunk 2/5")
- * Returns { current: number, total: number } or null if not found
+ * Parse status message to extract chunk progress (e.g., "Transcribing chunk 2/5 (40%)")
+ * Returns { current: number, total: number, percentage: number } or null if not found
  */
-function parseChunkProgress(message: string | null): { current: number; total: number } | null {
+function parseChunkProgress(message: string | null): { current: number; total: number; percentage?: number } | null {
   if (!message) return null
   
-  // Match patterns like "chunk 2/5" or "clip 3/6"
-  const match = message.match(/(?:chunk|clip)\s+(\d+)\s*\/\s*(\d+)/i)
+  // Match patterns like "chunk 2/5" or "clip 3/6" with optional percentage
+  const match = message.match(/(?:chunk|clip)\s+(\d+)\s*\/\s*(\d+)(?:\s*\((\d+)%\))?/i)
   if (match) {
     return {
       current: parseInt(match[1], 10),
       total: parseInt(match[2], 10),
+      percentage: match[3] ? parseInt(match[3], 10) : undefined,
+    }
+  }
+  
+  return null
+}
+
+/**
+ * Parse status message for detected language (e.g., "Language: English" or "Detected language: en")
+ */
+function parseLanguage(message: string | null): string | null {
+  if (!message) return null
+  
+  const match = message.match(/(?:language|detected language):\s*([a-z]+(?:\s+[a-z]+)?)/i)
+  if (match) {
+    return match[1]
+  }
+  
+  return null
+}
+
+/**
+ * Parse status message for time range (e.g., "Time range: 0:00 to 10:00")
+ */
+function parseTimeRange(message: string | null): { start: string; end: string } | null {
+  if (!message) return null
+  
+  const match = message.match(/time\s+range:\s*([\d:]+)\s+to\s+([\d:]+)/i)
+  if (match) {
+    return {
+      start: match[1],
+      end: match[2],
     }
   }
   
@@ -88,7 +120,9 @@ export function ProcessingView() {
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number } | null>(null)
+  const [chunkProgress, setChunkProgress] = useState<{ current: number; total: number; percentage?: number } | null>(null)
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null)
+  const [chunkTimeRange, setChunkTimeRange] = useState<{ start: string; end: string } | null>(null)
   const [currentStage, setCurrentStage] = useState<'downloading' | 'chunking' | 'transcribing' | 'analyzing' | 'highlighting' | 'generating' | 'complete' | 'error' | 'unknown'>('unknown')
   const [isIndeterminate, setIsIndeterminate] = useState(true)
   const [elapsedTime, setElapsedTime] = useState(0)
@@ -113,20 +147,35 @@ export function ProcessingView() {
       
       // Parse status message for chunk progress
       const chunkInfo = parseChunkProgress(status.status_message)
-      setChunkProgress(chunkInfo)
+      if (chunkInfo) {
+        setChunkProgress(chunkInfo)
+      } else {
+        setChunkProgress(null)
+      }
+      
+      // Parse detected language from status message
+      const language = parseLanguage(status.status_message)
+      if (language) {
+        setDetectedLanguage(language)
+      }
+      
+      // Parse time range from status message
+      const timeRange = parseTimeRange(status.status_message)
+      if (timeRange) {
+        setChunkTimeRange(timeRange)
+      }
       
       // Determine stage and whether progress is quantifiable
       const stageInfo = getStageFromStatus(status.status)
       setCurrentStage(stageInfo.stage)
       setIsIndeterminate(stageInfo.isIndeterminate && !chunkInfo)
       
-      // Update status message (use backend message if available, otherwise derive from status)
+      // Use backend status_message as single source of truth
+      // Only fall back to derived message if status_message is completely missing
       const displayMessage = status.status_message || 
-        (status.status === 'transcribing' ? 'Transcribing audio...' :
-         status.status === 'analyzing' ? 'Finding highlights...' :
-         status.status === 'downloading' ? 'Downloading media...' :
-         status.status === 'complete' ? 'Processing complete!' :
-         `Status: ${status.status}`)
+        (status.status === 'complete' ? 'Processing complete!' :
+         status.status === 'error' ? 'Processing failed' :
+         'Processing...')
       setStatusMessage(displayMessage)
       
       // Update store with status (but don't use fake progress values)
@@ -292,16 +341,18 @@ export function ProcessingView() {
     setCurrentStep(0)
     setCurrentStage('unknown')
     setIsIndeterminate(true)
-    setChunkProgress(null)
-    startTimeRef.current = Date.now()
-    setElapsedTime(0)
-    // Re-trigger processing
-    const currentMedia = media
-    if (currentMedia) {
-      setStatusMessage('Retrying...')
-      setProcessing('Retrying...', 0)
-      window.location.reload()
-    }
+        setChunkProgress(null)
+        setDetectedLanguage(null)
+        setChunkTimeRange(null)
+        startTimeRef.current = Date.now()
+        setElapsedTime(0)
+        // Re-trigger processing
+        const currentMedia = media
+        if (currentMedia) {
+          setStatusMessage('Retrying...')
+          setProcessing('Retrying...', 0)
+          window.location.reload()
+        }
   }
   
   const formatElapsed = (seconds: number) => {
@@ -324,7 +375,9 @@ export function ProcessingView() {
           </h2>
           <p className="text-star-white/60 text-sm">
             {media?.media_type === 'video' ? 'Video' : 'Audio'} • 
-            {media?.duration && ` ${formatDuration(media.duration)}`}
+            {media?.duration && media.duration > 0 
+              ? ` ${formatDuration(media.duration)}`
+              : ' Duration unknown (source does not provide length)'}
           </p>
           
           {/* Long content warning */}
@@ -398,12 +451,50 @@ export function ProcessingView() {
                     {step.label}
                   </p>
                   {isActive && !error && (
-                    <div className="text-star-white/40 text-xs mt-0.5">
-                      <p>{statusMessage || processingStatus}</p>
-                      {chunkProgress && (
-                        <p className="mt-1 font-mono">
-                          {chunkProgress.current} / {chunkProgress.total}
+                    <div className="text-star-white/80 text-sm mt-1 space-y-1">
+                      {/* Status message - verbatim from backend (single source of truth) */}
+                      {statusMessage && (
+                        <p className="font-medium text-star-white/90">
+                          {statusMessage}
                         </p>
+                      )}
+                      
+                      {/* Chunk progress when available - always render if present */}
+                      {chunkProgress && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="font-mono text-nebula-violet text-xs">
+                            Chunk {chunkProgress.current} / {chunkProgress.total}
+                          </span>
+                          {chunkProgress.percentage !== undefined && (
+                            <>
+                              <span className="text-star-white/40">•</span>
+                              <span className="font-semibold text-nebula-purple text-xs">
+                                {chunkProgress.percentage}%
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Chunk time range when available */}
+                      {chunkTimeRange && (
+                        <div className="text-xs text-star-white/60 mt-1">
+                          Time range: {chunkTimeRange.start} to {chunkTimeRange.end}
+                        </div>
+                      )}
+                      
+                      {/* Detected language when available */}
+                      {detectedLanguage && (
+                        <div className="text-xs text-star-white/60 mt-1">
+                          Language: {detectedLanguage}
+                        </div>
+                      )}
+                      
+                      {/* Soft ETA messaging (non-binding, text-only) */}
+                      {currentStage === 'transcribing' && media?.duration && media.duration > 600 && (
+                        <div className="text-xs text-star-white/50 mt-1 italic">
+                          This usually takes a few minutes for long audio
+                        </div>
                       )}
                     </div>
                   )}
@@ -427,34 +518,54 @@ export function ProcessingView() {
         
         {/* Stage indicator and progress */}
         <div className="mt-8">
-          {/* Stage label */}
+          {/* Stage label - visual scaffolding only, not semantic */}
           <div className="flex justify-between items-center mb-2 text-sm">
-            <span className="text-star-white/60 capitalize">
-              {currentStage === 'chunking' ? 'Transcribing' :
-               currentStage === 'highlighting' ? 'Finding highlights' :
-               currentStage === 'generating' ? 'Generating clips' :
-               currentStage === 'downloading' ? 'Downloading' :
-               currentStage === 'transcribing' ? 'Transcribing' :
-               currentStage === 'analyzing' ? 'Analyzing' :
-               currentStage === 'complete' ? 'Complete' :
-               currentStage === 'error' ? 'Error' :
-               'Working...'}
-              {chunkProgress && ` (${chunkProgress.current}/${chunkProgress.total})`}
-            </span>
-            <span className="text-star-white/40 font-mono">
+            <div className="flex items-center gap-2">
+              {/* Visual stage indicator (not duplicating status_message) */}
+              <span className="text-star-white/60 capitalize text-xs">
+                {currentStage === 'chunking' ? 'Preparing' :
+                 currentStage === 'highlighting' ? 'Analyzing' :
+                 currentStage === 'generating' ? 'Generating' :
+                 currentStage === 'downloading' ? 'Downloading' :
+                 currentStage === 'transcribing' ? 'Transcribing' :
+                 currentStage === 'analyzing' ? 'Analyzing' :
+                 currentStage === 'complete' ? 'Complete' :
+                 currentStage === 'error' ? 'Error' :
+                 'Working'}
+              </span>
+              {/* Chunk progress - always show when available */}
+              {chunkProgress && (
+                <span className="text-nebula-violet font-mono text-xs">
+                  {chunkProgress.current}/{chunkProgress.total}
+                  {chunkProgress.percentage !== undefined && ` (${chunkProgress.percentage}%)`}
+                </span>
+              )}
+            </div>
+            <span className="text-star-white/40 font-mono text-xs">
               {formatElapsed(elapsedTime)}
             </span>
           </div>
           
           {/* Progress bar - only show if progress is quantifiable */}
           {!isIndeterminate && chunkProgress ? (
-            <div className="h-2 bg-void-800 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-nebula-purple to-nebula-violet"
-                initial={{ width: '0%' }}
-                animate={{ width: `${(chunkProgress.current / chunkProgress.total) * 100}%` }}
-                transition={{ duration: 0.3 }}
-              />
+            <div className="space-y-1">
+              <div className="h-2 bg-void-800 rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-gradient-to-r from-nebula-purple to-nebula-violet"
+                  initial={{ width: '0%' }}
+                  animate={{ 
+                    width: chunkProgress.percentage !== undefined 
+                      ? `${chunkProgress.percentage}%`
+                      : `${(chunkProgress.current / chunkProgress.total) * 100}%`
+                  }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+              {chunkProgress.percentage !== undefined && (
+                <div className="text-right text-xs text-star-white/40 font-mono">
+                  {chunkProgress.percentage}% complete
+                </div>
+              )}
             </div>
           ) : isIndeterminate ? (
             <div className="h-2 bg-void-800 rounded-full overflow-hidden">

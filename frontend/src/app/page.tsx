@@ -8,6 +8,7 @@ import { Header } from '@/components/layout/Header'
 import { DropZone } from '@/components/upload/DropZone'
 import { ProjectHistory } from '@/components/projects/ProjectHistory'
 import { ProcessingView } from '@/components/processing/ProcessingView'
+import { ProcessingQueue } from '@/components/processing/ProcessingQueue'
 import { HighlightsView } from '@/components/highlights/HighlightsView'
 import { ExportView } from '@/components/export/ExportView'
 
@@ -185,6 +186,9 @@ export default function Home() {
           <span>Powered by Whisper + Ollama</span>
         </div>
       </footer>
+      
+      {/* Persistent Processing Queue */}
+      <ProcessingQueue />
     </div>
   )
 }

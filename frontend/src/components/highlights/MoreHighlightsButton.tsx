@@ -15,7 +15,16 @@ export function MoreHighlightsButton({ onComplete }: MoreHighlightsButtonProps) 
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showOptions, setShowOptions] = useState(false)
   
-  const { media, highlights, setHighlights } = useProjectStore()
+  const { media, highlights, setHighlights, processingStatus } = useProjectStore()
+  
+  // Check if analysis is already running (from processing status or local state)
+  // Also check for 'highlighting' or 'analyzing' in status to catch all analysis states
+  const isProcessing = isAnalyzing || 
+    (processingStatus ? (
+      processingStatus.toLowerCase().includes('analyzing') ||
+      processingStatus.toLowerCase().includes('highlighting') ||
+      processingStatus.toLowerCase().includes('finding highlights')
+    ) : false)
   
   if (!media || !highlights) return null
   
@@ -108,8 +117,8 @@ export function MoreHighlightsButton({ onComplete }: MoreHighlightsButtonProps) 
           {/* Full scan option */}
           <button
             onClick={() => handleFindMore()}
-            disabled={isAnalyzing}
-            className="w-full p-3 rounded-lg bg-void-800/50 hover:bg-void-700/50 transition-colors text-left"
+            disabled={isProcessing}
+            className="w-full p-3 rounded-lg bg-void-800/50 hover:bg-void-700/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-nebula-violet" />
@@ -128,8 +137,8 @@ export function MoreHighlightsButton({ onComplete }: MoreHighlightsButtonProps) 
                 <button
                   key={i}
                   onClick={() => handleFindMore(gap.start, gap.end)}
-                  disabled={isAnalyzing}
-                  className="w-full p-2 rounded-lg bg-void-900/50 hover:bg-void-800/50 transition-colors text-left text-sm"
+                  disabled={isProcessing}
+                  className="w-full p-2 rounded-lg bg-void-900/50 hover:bg-void-800/50 transition-colors text-left text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="text-star-white/80">
                     {formatTimeRange(gap.start, gap.end)}
@@ -142,7 +151,7 @@ export function MoreHighlightsButton({ onComplete }: MoreHighlightsButtonProps) 
             </>
           )}
           
-          {isAnalyzing && (
+          {isProcessing && (
             <div className="flex items-center justify-center py-2">
               <Loader2 className="w-5 h-5 text-nebula-violet animate-spin mr-2" />
               <span className="text-sm text-star-white/60">Finding highlights...</span>
@@ -154,20 +163,37 @@ export function MoreHighlightsButton({ onComplete }: MoreHighlightsButtonProps) 
           onClick={() => setShowOptions(true)}
           variant="outline"
           className="w-full"
-          disabled={isAnalyzing}
+          disabled={isProcessing}
         >
-          {isAnalyzing ? (
-            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+          {isProcessing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              <span>Finding Highlights...</span>
+            </>
           ) : (
-            <Plus className="w-4 h-4 mr-2" />
+            <>
+              <Plus className="w-4 h-4 mr-2" />
+              Find More Highlights
+            </>
           )}
-          Find More Highlights
-          {hasUncoveredContent && (
+          {hasUncoveredContent && !isProcessing && (
             <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-nebula-purple/20 text-nebula-violet">
               {gaps.length} uncovered section{gaps.length > 1 ? 's' : ''}
             </span>
           )}
         </Button>
+      )}
+      {isProcessing && (
+        <motion.div
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-2 p-2 rounded-lg bg-nebula-purple/10 border border-nebula-purple/20"
+        >
+          <p className="text-xs text-star-white/80 text-center">
+            <Loader2 className="w-3 h-3 inline animate-spin mr-1" />
+            This process is already running. Please wait for it to complete.
+          </p>
+        </motion.div>
       )}
     </div>
   )

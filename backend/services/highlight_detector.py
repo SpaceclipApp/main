@@ -95,16 +95,23 @@ class HighlightDetector:
         
         # Analyze each chunk
         all_highlights = []
+        total_chunks = len(chunks)
         for i, chunk in enumerate(chunks):
+            # Note: We don't have direct access to progress callback here,
+            # but the analyze endpoint can report progress via project status
             chunk_highlights = await self._analyze_chunk(
                 chunk,
                 highlights_per_chunk,
                 min_clip_duration,
                 max_clip_duration,
                 chunk_index=i,
-                total_chunks=len(chunks)
+                total_chunks=total_chunks
             )
             all_highlights.extend(chunk_highlights)
+            
+            # Log progress for monitoring
+            percentage = int((i + 1) / total_chunks * 100)
+            logger.info(f"Analyzed chunk {i + 1}/{total_chunks} ({percentage}%) - Found {len(chunk_highlights)} highlights")
         
         # Task 2.5.5: Boost scores based on signal detection
         all_highlights = self._apply_signal_boost(all_highlights, signal_regions)

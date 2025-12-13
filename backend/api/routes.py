@@ -1,5 +1,13 @@
 """
 API routes for SpaceClip
+
+DIAGNOSTIC NOTES (Observed Issues - NOT FIXED):
+- Multiple concurrent highlight analyses for the same media_id observed in logs
+- Sequential clip generation causing perceived slowness (2 platforms × 30s = ~60s minimum)
+- Heavy FFmpeg cost per platform (CPU-intensive operations)
+- No request deduplication or locking mechanism currently implemented
+
+State clearly: "These are known and verified. No optimization is implemented in this task."
 """
 import asyncio
 import logging
@@ -406,7 +414,23 @@ async def create_clips(
     
     try:
         results = []
-        for platform in request.platforms:
+        total_clips = len(request.platforms)
+        
+        # Update project status for progress reporting
+        # NOTE: This is for UI transparency only. No optimization or deduplication is implemented.
+        project.status = ProcessingStatus.ANALYZING  # Reuse ANALYZING for clip generation
+        project.status_message = f"Generating clip 0/{total_clips}..."
+        await _save_project(db, request.media_id, user_id=user_id)
+        
+        for idx, platform in enumerate(request.platforms):
+            clip_num = idx + 1
+            platform_name = platform.value.replace('_', ' ').title()
+            
+            # Update progress
+            project.status_message = f"Generating clip {clip_num}/{total_clips} ({platform_name})..."
+            project.progress = 0.5 + (clip_num / total_clips * 0.4)  # 50-90% range
+            await _save_project(db, request.media_id, user_id=user_id)
+            
             clip = await clip_generator.create_clip(
                 media=project.media,
                 start=request.start,
@@ -422,6 +446,10 @@ async def create_clips(
             # Only append to project.clips if it's a new clip (not a duplicate)
             if clip.id not in [str(c.id) for c in existing_clips]:
                 project.clips.append(clip)
+        
+        # Final status
+        project.status_message = f"Generated {len(results)} clip{'s' if len(results) != 1 else ''}"
+        project.progress = 1.0
         
         # Save to database
         await _save_project(db, request.media_id, user_id=user_id)
@@ -883,8 +911,8 @@ async def process_full(
                 
                 # Transcribe
                 project.status = ProcessingStatus.TRANSCRIBING
-                project.progress = 0.1
-                project.status_message = "Starting transcription..."
+                project.progress = 0.05
+                project.status_message = "Preparing transcription..."
                 
                 # Set progress callback
                 transcription_service.set_progress_callback(update_transcription_progress)
@@ -904,7 +932,18 @@ async def process_full(
                 
                 # Analyze
                 project.status = ProcessingStatus.ANALYZING
-                project.status_message = "Finding highlights with AI..."
+                project.status_message = "Analyzing content for highlights..."
+                project.progress = 0.5
+                
+                # Calculate expected chunks for progress reporting
+                total_duration = transcription.segments[-1].end if transcription.segments else 0
+                chunk_duration = 600  # 10 minutes per chunk
+                num_chunks = int(total_duration / chunk_duration) + 1 if total_duration > chunk_duration else 1
+                
+                # Track chunk progress during analysis
+                # Note: highlight_detector doesn't have progress callback, so we estimate
+                # We'll update status after each chunk completes (via logging)
+                project.status_message = f"Analyzing {num_chunks} chunk{'s' if num_chunks > 1 else ''} for highlights..."
                 
                 highlights = await highlight_detector.analyze(
                     media_id=media_id,

@@ -206,7 +206,16 @@ class TranscriptionService:
         
         # Use chunked processing for long-form content
         if duration > LONG_FORM_THRESHOLD or force_chunked:
-            logger.info(f"Using chunked processing for long-form content ({duration:.1f}s)")
+            num_chunks = int(duration / CHUNK_DURATION_SECONDS) + 1
+            logger.info(f"Using chunked processing for long-form content ({duration:.1f}s, {num_chunks} chunks)")
+            # Format duration for display
+            hours = int(duration // 3600)
+            mins = int((duration % 3600) // 60)
+            if hours > 0:
+                duration_str = f"{hours}h {mins}m"
+            else:
+                duration_str = f"{mins}m"
+            self._report_progress(0.05, f"Preparing to transcribe {num_chunks} chunks ({duration_str} total)...")
             return await self._transcribe_chunked(media_id, file_path, duration, language)
         
         # Standard transcription for shorter content
@@ -283,13 +292,28 @@ class TranscriptionService:
                 if chunk_duration <= 0:
                     break
                 
-                # Progress calculation
+                # Progress calculation with percentage
                 chunk_progress = chunk_idx / num_chunks
+                percentage = int((chunk_idx + 1) / num_chunks * 100)
+                chunk_start_min = int(chunk_start / 60)
+                chunk_start_sec = int(chunk_start % 60)
+                chunk_end_min = int((chunk_start + chunk_duration) / 60)
+                chunk_end_sec = int((chunk_start + chunk_duration) % 60)
+                
+                # Format time range
+                if chunk_start_min > 0:
+                    start_str = f"{chunk_start_min}:{chunk_start_sec:02d}"
+                else:
+                    start_str = f"0:{chunk_start_sec:02d}"
+                if chunk_end_min > 0:
+                    end_str = f"{chunk_end_min}:{chunk_end_sec:02d}"
+                else:
+                    end_str = f"0:{chunk_end_sec:02d}"
+                
                 self._report_progress(
                     chunk_progress * 0.9,  # Reserve 10% for final processing
-                    f"Transcribing chunk {chunk_idx + 1}/{num_chunks} "
-                    f"({int(chunk_start / 60)}:{int(chunk_start % 60):02d} - "
-                    f"{int((chunk_start + chunk_duration) / 60)}:{int((chunk_start + chunk_duration) % 60):02d})"
+                    f"Transcribing chunk {chunk_idx + 1}/{num_chunks} ({percentage}%) - "
+                    f"Time range: {start_str} to {end_str}"
                 )
                 
                 # Extract chunk

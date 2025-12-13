@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { getProjectStatus } from '@/lib/api'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Download, 
@@ -366,29 +367,99 @@ export function ExportView() {
   
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<Record<Platform, 'pending' | 'processing' | 'complete'>>({} as any)
+  const [exportStatus, setExportStatus] = useState<Record<Platform, string>>({} as any)
   const [error, setError] = useState<string | null>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   
   const range = clipRange || (selectedHighlight ? { start: selectedHighlight.start, end: selectedHighlight.end } : null)
+  
+  // Poll for clip generation progress
+  useEffect(() => {
+    if (!isExporting || !media) return
+    
+    const pollProgress = async () => {
+      try {
+        const status = await getProjectStatus(media.id)
+        
+        // Parse status message for clip progress
+        if (status.status_message) {
+          // Check for "Generating clip X/Y" pattern
+          const clipMatch = status.status_message.match(/Generating clip (\d+)\/(\d+)/i)
+          if (clipMatch) {
+            const current = parseInt(clipMatch[1], 10)
+            const total = parseInt(clipMatch[2], 10)
+            const percentage = Math.round((current / total) * 100)
+            
+            // Update status for all processing platforms
+            setExportStatus(prev => {
+              const updated = { ...prev }
+              selectedPlatforms.forEach(p => {
+                if (exportProgress[p] === 'processing') {
+                  updated[p] = `Generating clip ${current}/${total} (${percentage}%)`
+                }
+              })
+              return updated
+            })
+          } else if (status.status_message.includes('Generating')) {
+            // Generic generating message
+            setExportStatus(prev => {
+              const updated = { ...prev }
+              selectedPlatforms.forEach(p => {
+                if (exportProgress[p] === 'processing' && !updated[p]) {
+                  updated[p] = status.status_message || 'Generating...'
+                }
+              })
+              return updated
+            })
+          }
+        }
+      } catch (err) {
+        // Ignore polling errors
+        console.error('Progress polling error:', err)
+      }
+    }
+    
+    // Poll every 1 second during export
+    pollingIntervalRef.current = setInterval(pollProgress, 1000)
+    
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+    }
+  }, [isExporting, media, selectedPlatforms, exportProgress])
   
   const handleExport = async () => {
     if (!media || !range || selectedPlatforms.length === 0) return
     
     setIsExporting(true)
     setError(null)
+    setExportStatus({} as any)
     
     // Initialize progress
     const progress: Record<Platform, 'pending' | 'processing' | 'complete'> = {} as any
-    selectedPlatforms.forEach(p => progress[p] = 'pending')
+    const status: Record<Platform, string> = {} as any
+    selectedPlatforms.forEach(p => {
+      progress[p] = 'pending'
+      status[p] = 'Waiting...'
+    })
     setExportProgress(progress)
+    setExportStatus(status)
     
     try {
-      // Mark all as processing
+      // Mark all as processing with initial status
       selectedPlatforms.forEach(p => {
         progress[p] = 'processing'
+        status[p] = `Preparing ${platformConfigs[p].name} clip...`
       })
       setExportProgress({ ...progress })
+      setExportStatus({ ...status })
       
-      // Create clips
+      // Show banner explaining the process
+      setError(null) // Clear any previous errors
+      
+      // Create clips (this is a blocking call, but we'll poll for progress)
       const newClips = await createClips({
         media_id: media.id,
         start: range.start,
@@ -402,15 +473,28 @@ export function ExportView() {
       addClips(newClips)
       
       // Mark all as complete
-      selectedPlatforms.forEach(p => {
+      selectedPlatforms.forEach((p, idx) => {
         progress[p] = 'complete'
+        status[p] = 'Complete!'
       })
       setExportProgress({ ...progress })
+      setExportStatus({ ...status })
       
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Export failed')
+      // Mark all as failed
+      selectedPlatforms.forEach(p => {
+        progress[p] = 'pending'
+        status[p] = 'Failed'
+      })
+      setExportProgress({ ...progress })
+      setExportStatus({ ...status })
     } finally {
       setIsExporting(false)
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
     }
   }
   
@@ -611,7 +695,14 @@ export function ExportView() {
                     </span>
                     
                     {status === 'processing' && (
-                      <Loader2 className="w-5 h-5 text-nebula-violet animate-spin" />
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-5 h-5 text-nebula-violet animate-spin" />
+                        {exportStatus[platform] && (
+                          <span className="text-xs text-star-white/60 font-mono">
+                            {exportStatus[platform]}
+                          </span>
+                        )}
+                      </div>
                     )}
                     {status === 'complete' && (
                       <motion.div
@@ -646,8 +737,62 @@ export function ExportView() {
             className="w-full"
             size="lg"
           >
-            {isExporting ? 'Creating Clips...' : `Export ${selectedPlatforms.length} Clip${selectedPlatforms.length !== 1 ? 's' : ''}`}
+            {isExporting ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Creating Clips...</span>
+              </div>
+            ) : (
+              `Export ${selectedPlatforms.length} Clip${selectedPlatforms.length !== 1 ? 's' : ''}`
+            )}
           </Button>
+          
+          {/* Banner explaining the process */}
+          {isExporting && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 p-4 rounded-lg bg-nebula-purple/10 border border-nebula-purple/20"
+            >
+              <p className="text-sm text-star-white/90">
+                Preparing video and captions. This may take a minute depending on length and platforms.
+              </p>
+            </motion.div>
+          )}
+          
+          {/* Export progress details */}
+          {isExporting && (
+            <div className="mt-4 space-y-2">
+              {selectedPlatforms.map((platform) => {
+                const config = platformConfigs[platform]
+                const status = exportProgress[platform]
+                const statusMsg = exportStatus[platform]
+                
+                return (
+                  <div
+                    key={platform}
+                    className="flex items-center gap-3 p-2 rounded-lg bg-void-800/50"
+                  >
+                    <div className={cn('w-8 h-8 rounded flex items-center justify-center', config.bgColor)}>
+                      <config.icon className={cn('w-4 h-4', config.color)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-star-white">{config.name}</p>
+                      {statusMsg && (
+                        <p className="text-xs text-star-white/60 font-mono">{statusMsg}</p>
+                      )}
+                    </div>
+                    {status === 'processing' && (
+                      <Loader2 className="w-4 h-4 text-nebula-violet animate-spin" />
+                    )}
+                    {status === 'complete' && (
+                      <Check className="w-4 h-4 text-aurora-green" />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
           
           {/* Error */}
           <AnimatePresence>
