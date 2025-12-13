@@ -13,7 +13,7 @@
 
 **Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
 **Phase 2 Progress:** 2/2 tasks completed (100%) ✅ **PHASE 2 COMPLETE!**
-**Phase 2.5 Progress:** 4/9 tasks completed (44%) - 4 auto tasks done, 5 require confirmation
+**Phase 2.5 Progress:** 5/10 tasks completed (50%) - 5 auto tasks done, 5 require confirmation
 
 **✅ Phase 1 Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
@@ -36,10 +36,11 @@
 - Task 2.2 — Regenerate captions after manual trim
 
 **✅ Phase 2.5 Completed Tasks (Auto):**
-- Task 2.5.1 — Project list state reconciliation ✅ **JUST COMPLETED**
-- Task 2.5.3 — Relax and relocate clip boundary editor ✅ **JUST COMPLETED**
-- Task 2.5.7 — Export preview correctness ✅ **JUST COMPLETED**
-- Task 2.5.8 — Template visibility (read-only) ✅ **JUST COMPLETED**
+- Task 2.5.1 — Project list state reconciliation ✅ **COMPLETED**
+- Task 2.5.3 — Relax and relocate clip boundary editor ✅ **COMPLETED**
+- Task 2.5.7 — Export preview correctness ✅ **COMPLETED**
+- Task 2.5.8 — Template visibility (read-only) ✅ **COMPLETED**
+- Task 2.5.10 — Processing transparency (trust-critical) ✅ **JUST COMPLETED**
 
 **⏸️ Phase 2.5 Pending (Require Confirmation):**
 - Task 2.5.2 — Fix clip time semantics (opus-4.5, confirmation required)
@@ -856,10 +857,12 @@ Simplifies onboarding and improves enterprise trust perception.
 
 ---
 
-### **TASK 2.5.10 — Processing transparency (trust-critical)**
+### **TASK 2.5.10 — Processing transparency (trust-critical)** ✅ **COMPLETED**
 
+```
 model: auto
-status: ⏳ PLANNED
+status: ✅ COMPLETED
+```
 
 **Problem:**
 Processing UI displays misleading percent-based progress that does not reflect real backend state, causing users to believe the app is stalled or inaccurate.
@@ -888,10 +891,11 @@ Processing UI displays misleading percent-based progress that does not reflect r
 ## 📋 **Phase 2.5 Model & Confirmation Summary**
 
 ### **Tasks Using `auto` Model (No Confirmation Required):**
-- **2.5.1** - Project list state reconciliation (UI state management)
-- **2.5.3** - Relax and relocate clip boundary editor (UI component relocation)
-- **2.5.7** - Export preview correctness (UI rendering logic)
-- **2.5.8** - Template visibility (read-only UI gallery)
+- **2.5.1** - Project list state reconciliation (UI state management) ✅
+- **2.5.3** - Relax and relocate clip boundary editor (UI component relocation) ✅
+- **2.5.7** - Export preview correctness (UI rendering logic) ✅
+- **2.5.8** - Template visibility (read-only UI gallery) ✅
+- **2.5.10** - Processing transparency (trust-critical) ✅
 
 ### **Tasks Using `opus-4.5` Model (Requires Human Confirmation):**
 - **2.5.2** - Fix clip time semantics ⚠️ **CONFIRMATION REQUIRED**
