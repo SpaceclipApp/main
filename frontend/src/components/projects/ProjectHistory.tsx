@@ -31,12 +31,14 @@ export function ProjectHistory() {
       return
     }
     
+    setIsLoading(true)
     listProjects()
       .then(data => {
         setProjects(data || [])
         setIsLoading(false)
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('Failed to load projects:', error)
         setProjects([])
         setIsLoading(false)
       })
@@ -44,6 +46,7 @@ export function ProjectHistory() {
   
   useEffect(() => {
     fetchProjects()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
   
   // Close menu when clicking outside

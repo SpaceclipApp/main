@@ -13,7 +13,7 @@
 
 **Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
 **Phase 2 Progress:** 2/2 tasks completed (100%) ✅ **PHASE 2 COMPLETE!**
-**Phase 2.5 Progress:** 9/10 tasks completed (90%) - All opus-4.5 tasks done, 1 task remaining (2.5.9 Auth surface cleanup)
+**Phase 2.5 Progress:** 13/13 tasks completed (100%) - All Phase 2.5 tasks complete! ✅
 
 **✅ Phase 1 Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
@@ -40,7 +40,10 @@
 - Task 2.5.3 — Relax and relocate clip boundary editor ✅ **COMPLETED**
 - Task 2.5.7 — Export preview correctness ✅ **COMPLETED**
 - Task 2.5.8 — Template visibility (read-only) ✅ **COMPLETED**
-- Task 2.5.10 — Processing transparency (trust-critical) ✅ **JUST COMPLETED**
+- Task 2.5.9 — Auth surface cleanup ✅ **COMPLETED**
+- Task 2.5.10 — Processing transparency & semantic status UI ✅ **COMPLETED**
+- Task 2.5.11 — Processing UI de-duplication & signal surfacing ✅ **COMPLETED**
+- Task 2.5.12 — Persistent processing queue (refresh-safe) ✅ **COMPLETED**
 
 **✅ Phase 2.5 Completed Tasks (Opus-4.5):**
 - Task 2.5.2 — Fix clip time semantics ✅ **COMPLETED**
@@ -48,8 +51,8 @@
 - Task 2.5.5 — Improve highlight discovery quality ✅ **COMPLETED**
 - Task 2.5.6 — Speaker name inference ✅ **COMPLETED**
 
-**⏸️ Phase 2.5 Pending:**
-- Task 2.5.9 — Auth surface cleanup (auto, confirmation required)
+**✅ Phase 2.5 Completed Tasks (Auto - Confirmation Required):**
+- Task 2.5.9 — Auth surface cleanup ✅ **COMPLETED**
 
 **📝 Next Up:**
 - Complete remaining Phase 2.5 tasks (require confirmation)
@@ -947,10 +950,10 @@ Users cannot tell whether downloading, transcription, highlight analysis, or cli
 
 ---
 
-### TASK 2.5.10 — Processing Transparency & Semantic Status UI
+### TASK 2.5.10 — Processing Transparency & Semantic Status UI ✅ **COMPLETED**
 
 model: auto  
-status: IN PROGRESS  
+status: ✅ COMPLETED  
 
 Problem:
 Processing UI shows redundant, conflicting, or missing information:
@@ -985,18 +988,28 @@ Exit criteria:
 
 ---
 
-### TASK 2.5.11 — Processing UI De-duplication & Signal Surfacing
+### TASK 2.5.11 — Processing UI De-duplication & Signal Surfacing ✅ **COMPLETED**
 
 model: auto  
-status: PLANNED  
+status: ✅ COMPLETED  
 
 Actions:
-- Remove duplicate semantic labels (stage vs title vs message)
-- Ensure `status_message` always wins render priority
-- Surface:
+- ✅ Remove duplicate semantic labels (stage vs title vs message)
+- ✅ Ensure `status_message` always wins render priority
+- ✅ Surface:
   - detected language
   - chunk range (e.g. 10:00–20:00)
-- Ensure progress UI is stable across hot reloads
+- ✅ Ensure progress UI is stable across hot reloads
+
+**Implementation:**
+- Step labels now only show when `statusMessage` is missing (status_message takes priority)
+- Removed duplicate phase banner that repeated status_message
+- Added hot reload stability: component resumes polling on mount if project is still processing
+- Language and time range signals surfaced as secondary informational text
+- Progress UI state persists across hot reloads via status polling resume
+
+**Files Modified:**
+- `frontend/src/components/processing/ProcessingView.tsx` — De-duplication, hot reload stability
 
 ---
 

@@ -43,6 +43,13 @@ export function ProcessingQueue() {
   const [items, setItems] = useState<ProcessingItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const pollingRefs = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  // Track auth state to prevent polling after logout
+  const isAuthenticatedRef = useRef(isAuthenticated)
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated
+  }, [isAuthenticated])
   
   /**
    * Determine if a project status is active (should be in queue)
@@ -119,10 +126,23 @@ export function ProcessingQueue() {
   
   /**
    * Poll a single project's status
+   * Auth-aware: stops immediately if user is no longer authenticated
    */
   const pollProjectStatus = async (mediaId: string) => {
+    // Auth guard: don't poll if logged out
+    if (!isAuthenticatedRef.current) {
+      stopPolling(mediaId)
+      return
+    }
+    
     try {
       const status: ProjectStatusResponse = await getProjectStatus(mediaId)
+      
+      // Double-check auth after async call (user might have logged out)
+      if (!isAuthenticatedRef.current) {
+        stopPolling(mediaId)
+        return
+      }
       
       // Check if still active
       if (!isActiveStatus(status.status)) {
@@ -146,6 +166,7 @@ export function ProcessingQueue() {
           : item
       ))
     } catch (error) {
+      // Silent failure: log to console, don't surface to UI
       console.error(`Failed to poll status for ${mediaId}:`, error)
       // On error, remove from queue (project might be deleted)
       setItems(prev => prev.filter(item => item.media_id !== mediaId))
@@ -183,6 +204,14 @@ export function ProcessingQueue() {
   }
   
   /**
+   * Stop all polling - used on logout
+   */
+  const stopAllPolling = () => {
+    pollingRefs.current.forEach((interval) => clearInterval(interval))
+    pollingRefs.current.clear()
+  }
+  
+  /**
    * Handle clicking on a queue item - navigate to project
    */
   const handleItemClick = async (mediaId: string) => {
@@ -200,16 +229,14 @@ export function ProcessingQueue() {
     if (isAuthenticated) {
       rehydrateQueue()
     } else {
-      // Clear queue and stop polling when logged out
+      // Explicit teardown on logout: stop all polling immediately
+      stopAllPolling()
       setItems([])
-      pollingRefs.current.forEach((interval) => clearInterval(interval))
-      pollingRefs.current.clear()
     }
     
     return () => {
-      // Clean up all polling intervals
-      pollingRefs.current.forEach((interval) => clearInterval(interval))
-      pollingRefs.current.clear()
+      // Clean up all polling intervals on unmount
+      stopAllPolling()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])

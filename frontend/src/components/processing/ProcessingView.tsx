@@ -4,7 +4,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Wand2, FileAudio, MessageSquare, Sparkles, AlertCircle, RefreshCw } from 'lucide-react'
 import { useProjectStore } from '@/store/project'
-import { transcribeMedia, analyzeHighlights, getProject, getProjectStatus } from '@/lib/api'
+import { useAuthStore } from '@/store/auth'
+import { transcribeMedia, analyzeHighlights, getProject, getProjectStatus, getProjectStatus as getStatus } from '@/lib/api'
 import { formatDuration } from '@/lib/utils'
 
 const POLL_INTERVAL = 2000 // 2 seconds
@@ -108,6 +109,7 @@ export function ProcessingView() {
   const { 
     media, 
     transcription: existingTranscription,
+    highlights: existingHighlights,
     setTranscription, 
     setHighlights, 
     setStep, 
@@ -116,6 +118,7 @@ export function ProcessingView() {
     progress,
     reset
   } = useProjectStore()
+  const { isAuthenticated } = useAuthStore()
   
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -129,6 +132,18 @@ export function ProcessingView() {
   const processingRef = useRef(false)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const startTimeRef = useRef<number>(Date.now())
+  // Track auth state to prevent polling after logout
+  const isAuthenticatedRef = useRef(isAuthenticated)
+  
+  // Keep auth ref in sync
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated
+    // Stop polling if user logs out
+    if (!isAuthenticated && pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }, [isAuthenticated])
   
   // Update elapsed time
   useEffect(() => {
@@ -138,12 +153,28 @@ export function ProcessingView() {
     return () => clearInterval(timer)
   }, [])
   
-  // Status polling function
+  // Status polling function - auth-aware
   const pollStatus = useCallback(async () => {
-    if (!media) return
+    // Auth guard: don't poll if logged out
+    if (!isAuthenticatedRef.current || !media) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+      return
+    }
     
     try {
       const status = await getProjectStatus(media.id)
+      
+      // Double-check auth after async call
+      if (!isAuthenticatedRef.current) {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+        return
+      }
       
       // Parse status message for chunk progress
       const chunkInfo = parseChunkProgress(status.status_message)
@@ -240,6 +271,78 @@ export function ProcessingView() {
     }
   }, [])
   
+  // Resume polling on mount if media exists (hot reload stability)
+  // This ensures UI state persists across hot reloads during active processing
+  useEffect(() => {
+    if (!media) return
+    
+    // Only resume if we don't already have complete data (transcription + highlights)
+    // This prevents unnecessary polling for completed projects
+    if (existingTranscription && existingHighlights) {
+      return
+    }
+    
+    // Check if project is still processing by polling status once
+    const checkAndResumePolling = async () => {
+      try {
+        const status = await getProjectStatus(media.id)
+        
+        // If still processing, resume polling and update state
+        if (status.status === 'pending' || 
+            status.status === 'downloading' || 
+            status.status === 'transcribing' || 
+            status.status === 'analyzing') {
+          
+          // Update local state from backend (hot reload recovery)
+          const chunkInfo = parseChunkProgress(status.status_message)
+          if (chunkInfo) {
+            setChunkProgress(chunkInfo)
+          } else {
+            setChunkProgress(null)
+          }
+          
+          const language = parseLanguage(status.status_message)
+          if (language) {
+            setDetectedLanguage(language)
+          } else {
+            setDetectedLanguage(null)
+          }
+          
+          const timeRange = parseTimeRange(status.status_message)
+          if (timeRange) {
+            setChunkTimeRange(timeRange)
+          } else {
+            setChunkTimeRange(null)
+          }
+          
+          setStatusMessage(status.status_message || 'Processing...')
+          
+          const stageInfo = getStageFromStatus(status.status)
+          setCurrentStage(stageInfo.stage)
+          setIsIndeterminate(stageInfo.isIndeterminate && !chunkInfo)
+          
+          // Update step based on status
+          if (status.status === 'transcribing' || status.status === 'downloading') {
+            setCurrentStep(0)
+          } else if (status.status === 'analyzing') {
+            setCurrentStep(1)
+          }
+          
+          // Resume polling (only if not already polling)
+          if (!pollingRef.current) {
+            pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
+          }
+        }
+      } catch (err) {
+        // Ignore errors during resume check (project might not exist yet)
+        console.error('Failed to resume polling:', err)
+      }
+    }
+    
+    checkAndResumePolling()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [media?.id])
+  
   useEffect(() => {
     if (!media) return
     
@@ -258,7 +361,9 @@ export function ProcessingView() {
         if (!transcription) {
           // Start polling for status updates immediately
           // This will show real backend status messages
-          pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
+          if (!pollingRef.current) {
+            pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
+          }
           
           // Initial status message (will be overridden by polling)
           setStatusMessage('Starting transcription...')
@@ -281,6 +386,11 @@ export function ProcessingView() {
         setStatusMessage('Finding highlights with AI...')
         setProcessing('Finding highlights with AI...', 0)
         
+        // Start polling for highlight analysis status
+        if (!pollingRef.current) {
+          pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
+        }
+        
         // Request more highlights for longer content
         const highlightCount = media.duration > 1800 ? 20 : media.duration > 600 ? 15 : 10
         
@@ -290,6 +400,12 @@ export function ProcessingView() {
           max_duration: 90,
         })
         setHighlights(highlights)
+        
+        // Stop polling after highlights complete
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
         
         // Complete
         setCurrentStep(2)
@@ -445,19 +561,21 @@ export function ProcessingView() {
                 </div>
                 
                 <div className="flex-1">
-                  <p className={`font-medium ${
-                    isActive ? 'text-star-white' : 'text-star-white/60'
-                  }`}>
-                    {step.label}
-                  </p>
+                  {/* Status message is single source of truth - only show step.label if no statusMessage */}
+                  {isActive && statusMessage ? (
+                    <p className="font-medium text-star-white/90">
+                      {statusMessage}
+                    </p>
+                  ) : (
+                    <p className={`font-medium ${
+                      isActive ? 'text-star-white' : 'text-star-white/60'
+                    }`}>
+                      {step.label}
+                    </p>
+                  )}
                   {isActive && !error && (
                     <div className="text-star-white/80 text-sm mt-1 space-y-1">
-                      {/* Status message - verbatim from backend (single source of truth) */}
-                      {statusMessage && (
-                        <p className="font-medium text-star-white/90">
-                          {statusMessage}
-                        </p>
-                      )}
+                      {/* Additional details below status message */}
                       
                       {/* Chunk progress when available - always render if present */}
                       {chunkProgress && (
@@ -518,28 +636,29 @@ export function ProcessingView() {
         
         {/* Stage indicator and progress */}
         <div className="mt-8">
-          {/* Stage label - visual scaffolding only, not semantic */}
+          {/* Minimal visual indicator - no semantic duplication */}
           <div className="flex justify-between items-center mb-2 text-sm">
             <div className="flex items-center gap-2">
-              {/* Visual stage indicator (not duplicating status_message) */}
-              <span className="text-star-white/60 capitalize text-xs">
-                {currentStage === 'chunking' ? 'Preparing' :
-                 currentStage === 'highlighting' ? 'Analyzing' :
-                 currentStage === 'generating' ? 'Generating' :
-                 currentStage === 'downloading' ? 'Downloading' :
-                 currentStage === 'transcribing' ? 'Transcribing' :
-                 currentStage === 'analyzing' ? 'Analyzing' :
-                 currentStage === 'complete' ? 'Complete' :
-                 currentStage === 'error' ? 'Error' :
-                 'Working'}
-              </span>
-              {/* Chunk progress - always show when available */}
-              {chunkProgress && (
+              {/* Chunk progress - always show when available (primary indicator) */}
+              {chunkProgress ? (
                 <span className="text-nebula-violet font-mono text-xs">
-                  {chunkProgress.current}/{chunkProgress.total}
+                  Chunk {chunkProgress.current}/{chunkProgress.total}
                   {chunkProgress.percentage !== undefined && ` (${chunkProgress.percentage}%)`}
                 </span>
-              )}
+              ) : statusMessage ? (
+                // If no chunk progress but statusMessage exists, show minimal stage hint
+                <span className="text-star-white/40 capitalize text-xs">
+                  {currentStage === 'chunking' ? 'Preparing' :
+                   currentStage === 'highlighting' ? 'Analyzing' :
+                   currentStage === 'generating' ? 'Generating' :
+                   currentStage === 'downloading' ? 'Downloading' :
+                   currentStage === 'transcribing' ? 'Transcribing' :
+                   currentStage === 'analyzing' ? 'Analyzing' :
+                   currentStage === 'complete' ? 'Complete' :
+                   currentStage === 'error' ? 'Error' :
+                   'Working'}
+                </span>
+              ) : null}
             </div>
             <span className="text-star-white/40 font-mono text-xs">
               {formatElapsed(elapsedTime)}

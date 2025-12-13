@@ -443,6 +443,30 @@ export async function generateCaption(text: string, platform: string = 'twitter'
   return response.data.caption
 }
 
+// User profile
+export interface UserProfileUpdate {
+  name?: string
+  avatar_url?: string
+}
+
+export interface UserProfileResponse {
+  id: string
+  email?: string
+  name?: string
+  avatar_url?: string
+  created_at: string
+}
+
+export async function updateUserProfile(updates: UserProfileUpdate): Promise<UserProfileResponse> {
+  const response = await api.patch('/auth/me', updates)
+  return response.data.user
+}
+
+export async function getCurrentUser(): Promise<UserProfileResponse> {
+  const response = await api.get('/auth/me')
+  return response.data.user
+}
+
 export function getDownloadUrl(clipId: string): string {
   return `${API_BASE}/api/download/${clipId}`
 }

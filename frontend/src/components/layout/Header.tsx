@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Rocket, RefreshCw, User, LogIn, ChevronDown, Settings, LogOut, FolderOpen } from 'lucide-react'
 import { useProjectStore } from '@/store/project'
@@ -12,19 +12,37 @@ import { cn } from '@/lib/utils'
 
 export function Header() {
   const { step, reset, clearAll, media } = useProjectStore()
-  const { user, isAuthenticated, logout } = useAuthStore()
+  const { user, isAuthenticated, logout, _hasHydrated } = useAuthStore()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showSignIn, setShowSignIn] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showProjects, setShowProjects] = useState(false)
   
+  // Close menus when auth state changes (prevents stale UI)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setShowUserMenu(false)
+      setShowSettings(false)
+      setShowProjects(false)
+    }
+  }, [isAuthenticated])
+  
   const handleLogout = () => {
-    logout() // Clear auth store
-    clearAll() // Clear all project store data including recent projects
+    // Close all modals first
     setShowUserMenu(false)
+    setShowSettings(false)
+    setShowProjects(false)
+    
+    // Clear all stores
+    clearAll() // Clear all project store data including recent projects
+    logout() // Clear auth store (also clears localStorage)
+    
     // Redirect to upload view
     window.location.href = '/'
   }
+  
+  // Derive display values safely - never show stale data
+  const displayUser = isAuthenticated && user ? user : null
   
   const handleOpenSettings = () => {
     setShowUserMenu(false)
@@ -79,21 +97,21 @@ export function Header() {
                 </motion.button>
               )}
               
-              {isAuthenticated && user ? (
+              {displayUser ? (
                 <div className="relative">
                   <button
                     onClick={() => setShowUserMenu(!showUserMenu)}
                     className="flex items-center gap-2 px-3 py-2 rounded-xl bg-void-800/50 hover:bg-void-700/50 transition-colors"
                   >
                     <div className="w-8 h-8 rounded-full bg-nebula-purple/30 flex items-center justify-center">
-                      {user.avatar_url ? (
-                        <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+                      {displayUser.avatar_url ? (
+                        <img src={displayUser.avatar_url} alt="" className="w-8 h-8 rounded-full" />
                       ) : (
                         <User className="w-4 h-4 text-nebula-violet" />
                       )}
                     </div>
                     <span className="hidden sm:block text-star-white text-sm max-w-[120px] truncate">
-                      {user.name || user.email?.split('@')[0]}
+                      {displayUser.name || displayUser.email?.split('@')[0]}
                     </span>
                     <ChevronDown className={cn(
                       "w-4 h-4 text-star-white/60 transition-transform",
@@ -121,10 +139,10 @@ export function Header() {
                           {/* User info */}
                           <div className="px-4 py-3 border-b border-void-600">
                             <p className="text-star-white font-medium truncate">
-                              {user.name || 'User'}
+                              {displayUser.name || 'User'}
                             </p>
                             <p className="text-star-white/60 text-sm truncate">
-                              {user.email}
+                              {displayUser.email}
                             </p>
                           </div>
                           

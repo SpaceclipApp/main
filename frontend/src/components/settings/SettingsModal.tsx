@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, User, Palette, Bell, Shield, CreditCard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import { useProjectStore } from '@/store/project'
 import { AvatarUpload } from './AvatarUpload'
+import { updateUserProfile } from '@/lib/api'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -21,24 +22,53 @@ const tabs = [
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState('profile')
-  const { user, updateUser } = useAuthStore()
+  const { user, updateUser, isAuthenticated } = useAuthStore()
   const { selectedPlatforms, togglePlatform, audiogramStyle, setAudiogramStyle } = useProjectStore()
-  const [name, setName] = useState(user?.name || '')
+  const [name, setName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   
+  // Sync local name state with user from store (prevents stale data)
+  useEffect(() => {
+    if (isOpen && user?.name !== undefined) {
+      setName(user.name || '')
+    }
+  }, [isOpen, user?.name])
+  
+  // Close modal if user logs out while it's open
+  useEffect(() => {
+    if (!isAuthenticated && isOpen) {
+      onClose()
+    }
+  }, [isAuthenticated, isOpen, onClose])
+  
   const handleSaveProfile = async () => {
     setIsSaving(true)
-    // TODO: Save to backend
-    await new Promise(r => setTimeout(r, 500))
-    updateUser({ name })
-    setIsSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    try {
+      // Save to backend
+      const updatedUser = await updateUserProfile({ name })
+      // Update local store with backend response
+      updateUser({ name: updatedUser.name })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (error) {
+      console.error('Failed to save profile:', error)
+    } finally {
+      setIsSaving(false)
+    }
   }
   
   const handleAvatarChange = async (avatarUrl: string) => {
-    updateUser({ avatar_url: avatarUrl })
+    try {
+      // Save to backend
+      const updatedUser = await updateUserProfile({ avatar_url: avatarUrl })
+      // Update local store with backend response
+      updateUser({ avatar_url: updatedUser.avatar_url })
+    } catch (error) {
+      console.error('Failed to save avatar:', error)
+      // Still update local store for optimistic UI
+      updateUser({ avatar_url: avatarUrl })
+    }
   }
   
   return (

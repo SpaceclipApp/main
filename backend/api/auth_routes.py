@@ -221,6 +221,12 @@ async def logout(
     return {"status": "logged out"}
 
 
+class UpdateProfileRequest(BaseModel):
+    """Request to update user profile"""
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
 @router.get("/me")
 async def get_current_user_profile(
     user: User = Depends(require_auth),
@@ -231,6 +237,7 @@ async def get_current_user_profile(
     return {
         "user": UserProfile(
             id=user.id,
+            email=user.email,
             name=user.name,
             avatar_url=user.avatar_url,
             created_at=user.created_at,
@@ -240,6 +247,46 @@ async def get_current_user_profile(
             "default_platforms": user.default_platforms,
             "default_audiogram_style": user.default_audiogram_style,
         }
+    }
+
+
+@router.patch("/me")
+async def update_current_user_profile(
+    request: UpdateProfileRequest,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(db_session_dependency)
+):
+    """Update current user profile (name, avatar)"""
+    updates = {}
+    if request.name is not None:
+        updates['name'] = request.name
+    if request.avatar_url is not None:
+        updates['avatar_url'] = request.avatar_url
+    
+    if not updates:
+        # Nothing to update, return current user
+        return {
+            "user": UserProfile(
+                id=user.id,
+                email=user.email,
+                name=user.name,
+                avatar_url=user.avatar_url,
+                created_at=user.created_at,
+            )
+        }
+    
+    updated_user = await auth_service.update_user(db, user.id, updates)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "user": UserProfile(
+            id=updated_user.id,
+            email=updated_user.email,
+            name=updated_user.name,
+            avatar_url=updated_user.avatar_url,
+            created_at=updated_user.created_at,
+        )
     }
 
 

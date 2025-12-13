@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, FolderOpen, Film, Mic, Play, Scissors, ChevronRight, Loader2, Trash2, MoreVertical, Archive, RotateCcw } from 'lucide-react'
 import { cn, formatDuration } from '@/lib/utils'
 import { useProjectStore } from '@/store/project'
+import { useAuthStore } from '@/store/auth'
 import { listProjects, deleteProject, archiveProject, unarchiveProject, ProjectSummary } from '@/lib/api'
 import { PortalMenu } from '@/components/ui/PortalMenu'
 
@@ -25,14 +26,28 @@ export function ProjectsModal({ isOpen, onClose }: ProjectsModalProps) {
   const menuTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   
   const { loadProject } = useProjectStore()
+  const { isAuthenticated } = useAuthStore()
+  
+  // Close modal if user logs out while it's open
+  useEffect(() => {
+    if (!isAuthenticated && isOpen) {
+      onClose()
+    }
+  }, [isAuthenticated, isOpen, onClose])
   
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isAuthenticated) {
       loadProjects()
     }
-  }, [isOpen])
+  }, [isOpen, isAuthenticated])
   
   const loadProjects = async () => {
+    if (!isAuthenticated) {
+      setAllProjects([])
+      setIsLoading(false)
+      return
+    }
+    
     setIsLoading(true)
     try {
       // Fetch all projects including archived
