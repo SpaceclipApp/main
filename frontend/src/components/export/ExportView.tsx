@@ -21,8 +21,8 @@ import {
 import { cn, formatDuration, formatTime } from '@/lib/utils'
 import { useProjectStore } from '@/store/project'
 import { Button } from '@/components/ui/Button'
-import { ClipRangeEditor } from '@/components/player/ClipRangeEditor'
-import { Platform, createClips, getDownloadUrl, updateClipRange } from '@/lib/api'
+import { TemplateGallery } from './TemplateGallery'
+import { Platform, createClips, getDownloadUrl } from '@/lib/api'
 
 const platformConfigs: Record<Platform, { 
   name: string
@@ -49,6 +49,17 @@ const audiogramStyles = [
   { id: 'sunset', name: 'Sunset', colors: ['#e94560', '#ffd93d'] },
   { id: 'minimal', name: 'Minimal', colors: ['#ffffff', '#000000'] },
 ]
+
+// Platform specs for preview rendering
+const platformSpecs: Record<Platform, { width: number; height: number; aspectRatio: string }> = {
+  instagram_feed: { width: 1080, height: 1080, aspectRatio: '1:1' },
+  instagram_reels: { width: 1080, height: 1920, aspectRatio: '9:16' },
+  tiktok: { width: 1080, height: 1920, aspectRatio: '9:16' },
+  youtube: { width: 1920, height: 1080, aspectRatio: '16:9' },
+  youtube_shorts: { width: 1080, height: 1920, aspectRatio: '9:16' },
+  linkedin: { width: 1920, height: 1080, aspectRatio: '16:9' },
+  twitter: { width: 1280, height: 720, aspectRatio: '16:9' },
+}
 
 // Generate SVG waveform path that mimics FFmpeg showwaves output
 function generateWaveformPath(width: number, height: number, timeOffset: number = 0): string {
@@ -88,12 +99,18 @@ function ClipPreview({
   media, 
   range, 
   title, 
-  audiogramStyle 
+  audiogramStyle,
+  platform,
+  showCaptions,
+  transcription
 }: { 
   media: any
   range: { start: number; end: number }
   title: string
   audiogramStyle: string
+  platform: Platform
+  showCaptions: boolean
+  transcription?: any
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -152,10 +169,30 @@ function ClipPreview({
   
   const colors = themeColors[audiogramStyle] || themeColors.cosmic
   const isMinimal = audiogramStyle === 'minimal'
+  const spec = platformSpecs[platform]
+  const aspectRatioValue = spec.aspectRatio === '9:16' ? 9/16 : spec.aspectRatio === '16:9' ? 16/9 : 1/1
+  
+  // Get captions for the clip range if enabled
+  const clipCaptions = showCaptions && transcription?.segments
+    ? transcription.segments.filter((seg: any) => 
+        seg.end > range.start && seg.start < range.end
+      ).map((seg: any) => ({
+        ...seg,
+        start: Math.max(0, seg.start - range.start),
+        end: Math.min(range.end - range.start, seg.end - range.start),
+      }))
+    : []
   
   return (
     <div className="space-y-3">
-      <div className="aspect-[9/16] max-h-80 mx-auto rounded-xl flex items-center justify-center relative overflow-hidden" style={{ background: colors.bg }}>
+      <div 
+        className="max-h-80 mx-auto rounded-xl flex items-center justify-center relative overflow-hidden"
+        style={{ 
+          background: colors.bg,
+          aspectRatio: `${spec.width} / ${spec.height}`,
+          maxWidth: '100%'
+        }}
+      >
         {isYouTube && youtubeId ? (
           <iframe
             src={`https://www.youtube.com/embed/${youtubeId}?start=${Math.floor(range.start)}&end=${Math.floor(range.end)}&autoplay=0`}
@@ -239,6 +276,31 @@ function ClipPreview({
               )}>
                 SpaceClip
               </div>
+              
+              {/* Captions overlay if enabled */}
+              {showCaptions && clipCaptions.length > 0 && (
+                <div className="absolute bottom-16 left-4 right-4">
+                  {clipCaptions.slice(0, 2).map((caption: any, idx: number) => {
+                    const opacity = idx === 0 ? 1 : 0.6
+                    return (
+                      <div
+                        key={idx}
+                        className="text-center mb-1"
+                        style={{ opacity }}
+                      >
+                        <p className={cn(
+                          "text-sm font-medium px-3 py-1 rounded",
+                          isMinimal 
+                            ? "bg-black/80 text-white" 
+                            : "bg-white/90 text-black"
+                        )}>
+                          {caption.text}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -266,6 +328,10 @@ function ClipPreview({
         <p className="text-star-white/40 text-xs">
           {formatTime(range.start)} - {formatTime(range.end)} ({formatDuration(duration)})
         </p>
+        <p className="text-star-white/30 text-xs mt-1">
+          {platformConfigs[platform].name} • {spec.width}×{spec.height}
+          {showCaptions && ' • With captions'}
+        </p>
       </div>
     </div>
   )
@@ -280,6 +346,7 @@ export function ExportView() {
     transcription,
     selectedPlatforms,
     togglePlatform,
+    setSelectedPlatforms,
     includeCaption,
     setIncludeCaption,
     audiogramStyle,
@@ -289,28 +356,17 @@ export function ExportView() {
     setStep,
   } = useProjectStore()
   
+  // Restore last-used platforms on mount (already persisted in store)
+  useEffect(() => {
+    // If no platforms selected, default to common ones
+    if (selectedPlatforms.length === 0) {
+      setSelectedPlatforms(['instagram_reels', 'tiktok'])
+    }
+  }, [selectedPlatforms.length, setSelectedPlatforms]) // Only run once on mount
+  
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState<Record<Platform, 'pending' | 'processing' | 'complete'>>({} as any)
   const [error, setError] = useState<string | null>(null)
-  const [updatedCaptions, setUpdatedCaptions] = useState<any[]>([])
-  
-  // Handle clip range commit (when user finishes dragging handles)
-  const handleRangeCommit = async (start: number, end: number) => {
-    if (!media) return
-    
-    try {
-      const response = await updateClipRange(
-        media.id,
-        start,
-        end,
-        selectedHighlight?.id
-      )
-      // Update captions for the new range
-      setUpdatedCaptions(response.captions)
-    } catch (err) {
-      console.error('Failed to update clip range:', err)
-    }
-  }
   
   const range = clipRange || (selectedHighlight ? { start: selectedHighlight.start, end: selectedHighlight.end } : null)
   
@@ -378,49 +434,86 @@ export function ExportView() {
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left: Preview & Settings */}
         <div className="space-y-6">
-          {/* Clip preview */}
+          {/* Clip previews for all selected platforms */}
           <div className="glass-card p-5">
-            <h3 className="font-semibold text-star-white mb-4">Clip Preview</h3>
+            <h3 className="font-semibold text-star-white mb-4">
+              Preview{selectedPlatforms.length > 1 ? 's' : ''}
+            </h3>
             
-            <ClipPreview 
-              media={media}
-              range={range}
-              title={selectedHighlight?.title || 'Custom Clip'}
-              audiogramStyle={audiogramStyle}
-            />
-          </div>
-          
-          {/* Clip Range Editor - Drag handles for adjusting boundaries */}
-          <div className="glass-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Scissors className="w-4 h-4 text-nebula-violet" />
-              <h3 className="font-semibold text-star-white">Adjust Clip Boundaries</h3>
-            </div>
-            
-            <ClipRangeEditor
-              duration={media.duration}
-              clipRange={range}
-              onRangeChange={(start, end) => setClipRange(start, end)}
-              onRangeCommit={handleRangeCommit}
-              transcription={transcription?.segments}
-              minClipDuration={5}
-              maxClipDuration={180}
-            />
-            
-            {/* Show updated caption count */}
-            {updatedCaptions.length > 0 && (
-              <p className="text-xs text-star-white/40 mt-2">
-                {updatedCaptions.length} caption segments in selection
+            {selectedPlatforms.length === 0 ? (
+              <p className="text-star-white/40 text-sm text-center py-8">
+                Select at least one platform to see preview
               </p>
+            ) : (
+              <div className="space-y-6">
+                {selectedPlatforms.map((platform) => {
+                  const config = platformConfigs[platform]
+                  return (
+                    <div key={platform} className="border border-void-700 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className={cn('w-6 h-6 rounded flex items-center justify-center', config.bgColor)}>
+                          <config.icon className={cn('w-4 h-4', config.color)} />
+                        </div>
+                        <span className="text-sm font-medium text-star-white">{config.name}</span>
+                      </div>
+                      <ClipPreview 
+                        media={media}
+                        range={range}
+                        title={selectedHighlight?.title || 'Custom Clip'}
+                        audiogramStyle={audiogramStyle}
+                        platform={platform}
+                        showCaptions={includeCaption}
+                        transcription={transcription}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
+          
+          {/* Clip Range Display (read-only at export stage) */}
+          {range && (
+            <div className="glass-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Scissors className="w-4 h-4 text-nebula-violet" />
+                <h3 className="font-semibold text-star-white">Clip Range</h3>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-star-white/60">Start:</span>
+                  <span className="font-mono text-nebula-violet">{formatTime(range.start)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-star-white/60">End:</span>
+                  <span className="font-mono text-nebula-violet">{formatTime(range.end)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t border-void-700">
+                  <span className="text-star-white/60">Duration:</span>
+                  <span className="font-mono text-nebula-violet">{formatDuration(range.end - range.start)}</span>
+                </div>
+              </div>
+              
+              <p className="text-xs text-star-white/40 mt-4">
+                Edit clip boundaries in the Select/Edit stage before exporting
+              </p>
+            </div>
+          )}
+          
+          {/* Template Gallery (read-only) */}
+          {media.media_type === 'audio' && (
+            <div className="glass-card p-5">
+              <TemplateGallery readOnly={true} />
+            </div>
+          )}
           
           {/* Audiogram style selector */}
           {media.media_type === 'audio' && (
             <div className="glass-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Palette className="w-4 h-4 text-nebula-violet" />
-                <h3 className="font-semibold text-star-white">Audiogram Style</h3>
+                <h3 className="font-semibold text-star-white">Select Style</h3>
               </div>
               
               <div className="grid grid-cols-2 gap-2">

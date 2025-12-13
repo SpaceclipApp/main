@@ -61,6 +61,7 @@ interface ProjectStore {
   // Export options
   selectedPlatforms: Platform[]
   togglePlatform: (platform: Platform) => void
+  setSelectedPlatforms: (platforms: Platform[]) => void
   includeCaption: boolean
   setIncludeCaption: (include: boolean) => void
   audiogramStyle: string
@@ -139,6 +140,8 @@ export const useProjectStore = create<ProjectStore>()(
           : [...state.selectedPlatforms, platform]
       })),
       
+      setSelectedPlatforms: (platforms) => set({ selectedPlatforms: platforms }),
+      
       setIncludeCaption: (includeCaption) => set({ includeCaption }),
       
       setAudiogramStyle: (audiogramStyle) => set({ audiogramStyle }),
@@ -187,7 +190,7 @@ export const useProjectStore = create<ProjectStore>()(
         // Only persist these fields
         currentProjectId: state.currentProjectId,
         recentProjects: state.recentProjects,
-        selectedPlatforms: state.selectedPlatforms,
+        selectedPlatforms: state.selectedPlatforms, // Persist last-used platforms
         includeCaption: state.includeCaption,
         audiogramStyle: state.audiogramStyle,
       }),

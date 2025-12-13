@@ -13,6 +13,7 @@
 
 **Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
 **Phase 2 Progress:** 2/2 tasks completed (100%) ✅ **PHASE 2 COMPLETE!**
+**Phase 2.5 Progress:** 4/9 tasks completed (44%) - 4 auto tasks done, 5 require confirmation
 
 **✅ Phase 1 Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
@@ -31,10 +32,24 @@
 - Task 1.14 — Active/Archived toggle & Portal menu
 
 **✅ Phase 2 Completed Tasks:**
-- Task 2.1 — Drag handles for clip boundaries ✅ **JUST COMPLETED**
-- Task 2.2 — Regenerate captions after manual trim ✅ **JUST COMPLETED**
+- Task 2.1 — Drag handles for clip boundaries
+- Task 2.2 — Regenerate captions after manual trim
+
+**✅ Phase 2.5 Completed Tasks (Auto):**
+- Task 2.5.1 — Project list state reconciliation ✅ **JUST COMPLETED**
+- Task 2.5.3 — Relax and relocate clip boundary editor ✅ **JUST COMPLETED**
+- Task 2.5.7 — Export preview correctness ✅ **JUST COMPLETED**
+- Task 2.5.8 — Template visibility (read-only) ✅ **JUST COMPLETED**
+
+**⏸️ Phase 2.5 Pending (Require Confirmation):**
+- Task 2.5.2 — Fix clip time semantics (opus-4.5, confirmation required)
+- Task 2.5.4 — Highlight timing alignment bug (opus-4.5, confirmation required)
+- Task 2.5.5 — Improve highlight discovery quality (opus-4.5, confirmation required)
+- Task 2.5.6 — Speaker name inference (opus-4.5, confirmation required)
+- Task 2.5.9 — Auth surface cleanup (auto, confirmation required)
 
 **📝 Next Up:**
+- Complete remaining Phase 2.5 tasks (require confirmation)
 - Phase 3 — Paywall + Invites (requires confirmation)
 
 **📝 Notes:**
@@ -508,6 +523,415 @@ status: ✅ COMPLETED
 - `frontend/src/components/player/ClipRangeEditor.tsx` - Added `onRangeCommit` callback for saving changes
 
 ---
+
+## 🔧 **PHASE 2.5 — TRUST, INTELLIGENCE & FLOW** *(NEW)*
+
+> *Goal: make Spaceclip feel competent, predictable, and worth trusting.*
+## ⚠️ Phase 2.5 Clarification: Trust-Critical Systems
+
+The following systems are considered **trust-critical**.
+They must prioritize correctness, transparency, and predictability over speed or polish:
+
+- Processing progress UI
+- Highlight discovery feedback
+- Clip timestamp display
+
+For trust-critical systems:
+- Do NOT display percentages unless derived from real, countable progress
+- Do NOT reuse placeholder defaults (e.g. 15s) once real data exists
+- Do NOT collapse multi-stage processes into a single ambiguous state
+
+If accuracy cannot be guaranteed, the UI must say so explicitly.
+
+
+---
+
+### **TASK 2.5.1 — Project list state reconciliation** ✅ **COMPLETED**
+
+```
+model: auto
+status: ✅ COMPLETED
+```
+
+**Problem:**
+Archived / unarchived projects do not immediately appear or disappear without a full page refresh.
+
+**Actions:**
+
+* ✅ Invalidate or refetch project list after:
+
+  * archive
+  * unarchive
+  * delete
+* ✅ Implement optimistic UI updates with fallback refetch on failure
+* ✅ Ensure Active / Archived tabs stay in sync with backend state
+
+**Implementation:**
+- Added optimistic UI updates that immediately reflect changes
+- Refetch project list after successful operations to ensure sync
+- Revert optimistic updates on failure, then refetch to get correct state
+- Applied to both ProjectsModal and ProjectHistory components
+- Works for single and bulk operations
+
+**Files Modified:**
+- `frontend/src/components/projects/ProjectsModal.tsx` - Added refetch logic to archive/unarchive/delete handlers
+- `frontend/src/components/projects/ProjectHistory.tsx` - Added refetch logic to all action handlers
+
+**Impact:**
+Restores user trust in basic project management actions.
+
+**Why auto:**
+- Straightforward state management and API refetching
+- No data model changes or complex logic required
+
+---
+
+### **TASK 2.5.2 — Fix clip time semantics**
+
+```
+model: opus-4.5
+requires: human-confirmation
+status: ⏳ PLANNED
+⚠️ EXECUTION REQUIREMENT:
+This task must be executed in a fresh context using opus-4.5.
+If the active model is not opus-4.5, STOP and ask for confirmation.
+```
+
+**Problem:**
+Clips display incorrect timestamps (e.g. `0:00–0:15`) even when the clip occurs later in the source media.
+
+**Actions:**
+
+* Normalize clip data model:
+
+  * Store **absolute media timestamps** for clips
+  * Derive relative timestamps only for export/render
+* Update UI to display true `start → end` times
+* Remove hard-coded 15s assumptions across clip UI
+* **Migration strategy**: Handle existing clips with relative timestamps
+
+**Impact:**
+Fixes a major credibility issue and aligns UI with actual media behavior.
+
+**Why opus-4.5 + confirmation:**
+- Changes core data model (absolute vs relative timestamps)
+- Requires migration strategy for existing clips
+- Could break existing exports/clips if not handled carefully
+
+---
+
+### **TASK 2.5.3 — Relax and relocate clip boundary editor** ✅ **COMPLETED**
+
+```
+model: auto
+status: ✅ COMPLETED
+```
+
+**Problem:**
+Clip boundary editing is constrained (3 min max) and placed too late in the flow (Export).
+
+**Actions:**
+
+* ✅ Move clip boundary editing to **Select / Edit** stage (HighlightsView)
+* ✅ Remove or relax 3-minute hard cap (now `undefined` = no limit)
+* ✅ Allow independent dragging of start and end handles across timeline
+* ✅ Preserve word-boundary snapping behavior
+
+**Implementation:**
+- Moved `ClipRangeEditor` from ExportView to HighlightsView (Select/Edit stage)
+- Changed `maxClipDuration` from 180s to `undefined` (no maximum limit)
+- ExportView now shows read-only clip range display
+- Clip range changes are saved to backend via `updateClipRange` API
+- Editor automatically saves changes when drag ends
+
+**Files Modified:**
+- `frontend/src/components/player/ClipRangeEditor.tsx` - Made maxClipDuration optional (undefined = no limit)
+- `frontend/src/components/highlights/HighlightsView.tsx` - Added ClipRangeEditor integration
+- `frontend/src/components/export/ExportView.tsx` - Removed editor, shows read-only range display
+
+**Impact:**
+Restores creative control and aligns with user mental model.
+
+**Why auto:**
+- UI component relocation and constraint removal
+- No data model or backend changes required
+
+---
+
+### **TASK 2.5.4 — Highlight timing alignment bug**
+
+```
+model: opus-4.5
+requires: human-confirmation
+status: ⏳ PLANNED
+⚠️ EXECUTION REQUIREMENT:
+This task must be executed in a fresh context using opus-4.5.
+If the active model is not opus-4.5, STOP and ask for confirmation.
+```
+
+**Problem:**
+Some highlights default to the start of the source media instead of their true position.
+
+**Actions:**
+
+* Validate highlight timestamps at creation time
+* Ensure highlight offsets correctly map to absolute media timeline
+* Add sanity checks before clip generation
+* **Data integrity**: Fix existing highlights with invalid timestamps
+
+**Impact:**
+Prevents invalid clips and downstream export errors.
+
+**Why opus-4.5 + confirmation:**
+- Fixes core data integrity issue affecting highlights
+- Requires validation logic and potentially data migration
+- Could affect existing projects with bad highlight data
+
+---
+
+### **TASK 2.5.5 — Improve highlight discovery quality**
+
+**Dependency:**
+This task assumes Task 2.5.10 (Processing transparency) is complete,
+so users can distinguish between “still analyzing” and “analysis complete but conservative.”
+
+```
+model: opus-4.5
+requires: human-confirmation
+⚠️ EXECUTION REQUIREMENT:
+This task must be executed in a fresh context using opus-4.5.
+If the active model is not opus-4.5, STOP and ask for confirmation.
+status: ⏳ PLANNED
+```
+
+**Problem:**
+Highlight generation is overly conservative and often returns too few results, especially for long-form content.
+
+**Actions:**
+
+* Introduce minimum highlight density heuristic (e.g. 5–10 per hour)
+* Apply diversity constraints to avoid clustering
+* Replace hard thresholds with re-ranking + scoring
+* Use combined signals:
+
+  * transcript content
+  * sentiment shifts
+  * speaker turns
+  * emphasis markers
+
+**Impact:**
+Produces consistently useful highlights instead of “lucky hits.”
+
+---
+
+### **TASK 2.5.6 — Speaker name inference**
+
+```
+model: opus-4.5
+requires: human-confirmation
+⚠️ EXECUTION REQUIREMENT:
+This task must be executed in a fresh context using opus-4.5.
+If the active model is not opus-4.5, STOP and ask for confirmation.
+status: ⏳ PLANNED
+```
+
+**Problem:**
+Transcript speaker labels are generic (Speaker 1 / Speaker 2) even when names are clearly stated in context.
+
+**Actions:**
+
+* Detect self-identification phrases (“I’m Tony…”, “This is Zach…”)
+* Map recurring speakers to inferred names when confidence is high
+* Persist speaker mapping per project
+* Fall back safely to generic labels when uncertain
+* Never hallucinate speaker names
+
+**Impact:**
+Massively improves transcript readability and highlight quality.
+
+**Why opus-4.5 + confirmation:**
+- NLP/pattern matching logic requiring careful implementation
+- Must never hallucinate names - requires strict confidence thresholds
+- Affects transcript quality - needs validation before deployment
+
+---
+
+### **TASK 2.5.7 — Export preview correctness**
+
+```
+model: auto
+status: ⏳ PLANNED
+```
+
+**Problem:**
+Export previews do not reliably reflect selected platforms or caption settings.
+
+**Actions:**
+
+* Render previews for **all selected platforms** simultaneously
+* Persist last-used export platforms per user
+* Ensure “Include captions” is reflected in preview output
+
+**Impact:**
+Aligns preview expectations with final export results.
+
+**Implementation:**
+- Updated `ClipPreview` component to accept `platform` and `showCaptions` props
+- Added platform specs for correct aspect ratios (9:16, 16:9, 1:1)
+- Renders separate preview for each selected platform
+- Shows caption overlay when `includeCaption` is enabled
+- Captions are filtered and timestamp-adjusted for the clip range
+- Last-used platforms persist in Zustand store (already persisted to localStorage)
+
+**Files Modified:**
+- `frontend/src/components/export/ExportView.tsx` - Multiple preview rendering, caption display
+- `frontend/src/store/project.ts` - Added `setSelectedPlatforms` method for persistence
+
+**Why auto:**
+- UI rendering and state persistence logic
+- No complex algorithms or data model changes
+
+---
+
+### **TASK 2.5.8 — Template visibility (read-only)** ✅ **COMPLETED**
+
+```
+model: auto
+status: ✅ COMPLETED
+```
+
+**Problem:**
+Users cannot see all available export templates to assess quality or consistency.
+
+**Actions:**
+
+* ✅ Add read-only template gallery
+* ✅ Show all available export templates
+* ✅ No editing or customization yet
+
+**Implementation:**
+- Created `TemplateGallery` component with visual previews
+- Shows all 4 templates (Cosmic, Neon, Sunset, Minimal)
+- Each template shows:
+  - Color scheme preview with waveform visualization
+  - Progress bar preview
+  - Template name and description
+- Read-only mode (no selection/editing)
+- Integrated into ExportView for audio media
+
+**Files Created/Modified:**
+- `frontend/src/components/export/TemplateGallery.tsx` (NEW) - Read-only template gallery
+- `frontend/src/components/export/ExportView.tsx` - Added TemplateGallery integration
+
+**Impact:**
+Prepares groundwork for branded templates without increasing scope.
+
+---
+
+### **TASK 2.5.9 — Auth surface cleanup**
+
+```
+model: auto
+requires: human-confirmation
+status: ⏳ PLANNED
+```
+
+**Problem:**
+Multiple auth options reduce perceived trust and increase surface area.
+
+**Actions:**
+
+* Hide Google / Apple / Wallet login options
+* Email-only authentication for now
+* **Preserve backend**: Keep OAuth providers in code but hide from UI
+* **Analytics**: Track impact on signup conversion
+
+**Impact:**
+Simplifies onboarding and improves enterprise trust perception.
+
+**Why confirmation needed:**
+- Significant UX/product decision affecting user onboarding
+- Should confirm with stakeholders before removing auth options
+- May impact signup rates - needs monitoring
+
+---
+
+### **TASK 2.5.10 — Processing transparency (trust-critical)**
+
+model: auto
+status: ⏳ PLANNED
+
+**Problem:**
+Processing UI displays misleading percent-based progress that does not reflect real backend state, causing users to believe the app is stalled or inaccurate.
+
+**Actions:**
+
+* Replace percentage-based progress with **stage-based indicators**
+* Display:
+  - Current stage: downloading | chunking | transcribing | analyzing | highlighting
+  - Chunk progress: `chunk X / Y` when applicable
+* If progress cannot be quantified, show indeterminate state (“Working…”) explicitly
+* Ensure UI state is derived directly from `/projects/{media_id}/status`
+
+**Hard rules:**
+- ❌ No fake percentages
+- ❌ No smoothing or interpolation
+- ✅ Only show what the system actually knows
+
+**Exit criteria:**
+- Terminal logs and UI state tell the same story
+- Users never see “stuck at 65%” again
+
+
+---
+
+## 📋 **Phase 2.5 Model & Confirmation Summary**
+
+### **Tasks Using `auto` Model (No Confirmation Required):**
+- **2.5.1** - Project list state reconciliation (UI state management)
+- **2.5.3** - Relax and relocate clip boundary editor (UI component relocation)
+- **2.5.7** - Export preview correctness (UI rendering logic)
+- **2.5.8** - Template visibility (read-only UI gallery)
+
+### **Tasks Using `opus-4.5` Model (Requires Human Confirmation):**
+- **2.5.2** - Fix clip time semantics ⚠️ **CONFIRMATION REQUIRED**
+  - Changes core data model (absolute vs relative timestamps)
+  - Requires migration strategy for existing clips
+- **2.5.4** - Highlight timing alignment bug ⚠️ **CONFIRMATION REQUIRED**
+  - Fixes data integrity issue affecting highlights
+  - May require data migration
+- **2.5.5** - Improve highlight discovery quality ⚠️ **CONFIRMATION REQUIRED**
+  - Complex AI/ML algorithm changes
+  - Affects core highlight quality
+- **2.5.6** - Speaker name inference ⚠️ **CONFIRMATION REQUIRED**
+  - NLP/pattern matching logic
+  - Must never hallucinate names
+
+### **Tasks Using `auto` Model (But Requires Confirmation):**
+- **2.5.9** - Auth surface cleanup ⚠️ **CONFIRMATION REQUIRED**
+  - Significant UX/product decision
+  - May impact signup conversion rates
+
+**Note:** Tasks 2.5.2, 2.5.4, 2.5.5, 2.5.6, and 2.5.9 all require human confirmation before execution due to their impact on data integrity, core functionality, or user experience.
+
+---
+
+## ✅ Phase 2.5 Exit Criteria
+
+Phase 2.5 is considered complete when:
+
+* Clip timestamps are accurate and trustworthy
+* Highlights appear consistently across long-form content
+* Speaker labels are human-readable when possible
+* Project state updates feel immediate
+* Export previews match final output
+
+---
+
+⚠️ Phase 3 (Paywall + Invites) must not begin until Phase 2.5 exit criteria are met.
+Monetization should only be introduced once highlight quality, clip timing,
+and export previews are consistently trustworthy.
+
 
 # ================================
 

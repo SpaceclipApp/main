@@ -9,7 +9,9 @@ import { HighlightCard } from './HighlightCard'
 import { TranscriptViewer } from './TranscriptViewer'
 import { MoreHighlightsButton } from './MoreHighlightsButton'
 import { MediaPlayer, MediaPlayerRef } from '@/components/player/MediaPlayer'
+import { ClipRangeEditor } from '@/components/player/ClipRangeEditor'
 import { formatDuration } from '@/lib/utils'
+import { updateClipRange } from '@/lib/api'
 
 export function HighlightsView() {
   const {
@@ -183,19 +185,33 @@ export function HighlightsView() {
               </div>
             </div>
             
-            {/* Clip range display */}
-            {clipRange && (
-              <div className="bg-void-900/50 rounded-lg p-3 mt-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-star-white/60">Selected clip</span>
-                  <span className="font-mono text-nebula-violet">
-                    {formatDuration(clipRange.end - clipRange.start)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs text-star-white/40 mt-1">
-                  <span>{formatDuration(clipRange.start)}</span>
-                  <span>{formatDuration(clipRange.end)}</span>
-                </div>
+            {/* Clip Range Editor - Allow editing at Select/Edit stage */}
+            {(clipRange || selectedHighlight) && (
+              <div className="glass-card p-5 mt-4">
+                <h3 className="font-semibold text-star-white mb-4">Edit Clip Boundaries</h3>
+                <ClipRangeEditor
+                  duration={media.duration}
+                  clipRange={clipRange || (selectedHighlight ? { start: selectedHighlight.start, end: selectedHighlight.end } : { start: 0, end: 0 })}
+                  onRangeChange={(start, end) => setClipRange(start, end)}
+                  onRangeCommit={async (start, end) => {
+                    // Save clip range changes to backend
+                    if (media) {
+                      try {
+                        await updateClipRange(
+                          media.id,
+                          start,
+                          end,
+                          selectedHighlight?.id
+                        )
+                      } catch (error) {
+                        console.error('Failed to update clip range:', error)
+                      }
+                    }
+                  }}
+                  transcription={transcription?.segments}
+                  minClipDuration={5}
+                  maxClipDuration={undefined} // No maximum limit - relaxed constraint
+                />
               </div>
             )}
           </div>

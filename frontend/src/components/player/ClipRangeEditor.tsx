@@ -13,7 +13,7 @@ interface ClipRangeEditorProps {
   onRangeCommit?: (start: number, end: number) => void // Called when drag ends
   transcription?: TranscriptSegment[]
   minClipDuration?: number // Minimum clip length in seconds
-  maxClipDuration?: number // Maximum clip length in seconds
+  maxClipDuration?: number // Maximum clip length in seconds (undefined = no limit)
   className?: string
 }
 
@@ -33,7 +33,7 @@ export function ClipRangeEditor({
   onRangeCommit,
   transcription = [],
   minClipDuration = 5,
-  maxClipDuration = 180,
+  maxClipDuration, // undefined = no maximum limit
   className,
 }: ClipRangeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -108,14 +108,14 @@ export function ClipRangeEditor({
       
       if (isDragging === 'start') {
         newStart = Math.max(0, Math.min(newTime, clipRange.end - minClipDuration))
-        // Enforce max duration
-        if (newEnd - newStart > maxClipDuration) {
+        // Enforce max duration if specified
+        if (maxClipDuration !== undefined && newEnd - newStart > maxClipDuration) {
           newStart = newEnd - maxClipDuration
         }
       } else {
         newEnd = Math.min(duration, Math.max(newTime, clipRange.start + minClipDuration))
-        // Enforce max duration
-        if (newEnd - newStart > maxClipDuration) {
+        // Enforce max duration if specified
+        if (maxClipDuration !== undefined && newEnd - newStart > maxClipDuration) {
           newEnd = newStart + maxClipDuration
         }
       }
@@ -160,7 +160,7 @@ export function ClipRangeEditor({
           <span className={cn(
             'font-medium',
             clipDuration < minClipDuration ? 'text-red-400' :
-            clipDuration > maxClipDuration ? 'text-amber-400' :
+            (maxClipDuration !== undefined && clipDuration > maxClipDuration) ? 'text-amber-400' :
             'text-nebula-violet'
           )}>
             {formatTime(clipDuration)}

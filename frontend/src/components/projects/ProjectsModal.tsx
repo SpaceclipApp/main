@@ -70,27 +70,45 @@ export function ProjectsModal({ isOpen, onClose }: ProjectsModalProps) {
   
   const handleArchive = async (e: React.MouseEvent, mediaId: string) => {
     e.stopPropagation()
+    // Optimistic update
+    const previousProjects = [...allProjects]
+    setAllProjects(prev => prev.map(p => 
+      p.media_id === mediaId ? { ...p, status: 'archived' } : p
+    ))
+    setMenuOpen(null)
+    
     try {
       await archiveProject(mediaId)
-      setAllProjects(prev => prev.map(p => 
-        p.media_id === mediaId ? { ...p, status: 'archived' } : p
-      ))
-      setMenuOpen(null)
+      // Refetch to ensure sync with backend
+      await loadProjects()
     } catch (error) {
       console.error('Failed to archive project:', error)
+      // Revert optimistic update on failure
+      setAllProjects(previousProjects)
+      // Refetch to get correct state
+      await loadProjects()
     }
   }
   
   const handleUnarchive = async (e: React.MouseEvent, mediaId: string) => {
     e.stopPropagation()
+    // Optimistic update
+    const previousProjects = [...allProjects]
+    setAllProjects(prev => prev.map(p => 
+      p.media_id === mediaId ? { ...p, status: 'complete' } : p
+    ))
+    setMenuOpen(null)
+    
     try {
       await unarchiveProject(mediaId)
-      setAllProjects(prev => prev.map(p => 
-        p.media_id === mediaId ? { ...p, status: 'complete' } : p
-      ))
-      setMenuOpen(null)
+      // Refetch to ensure sync with backend
+      await loadProjects()
     } catch (error) {
       console.error('Failed to restore project:', error)
+      // Revert optimistic update on failure
+      setAllProjects(previousProjects)
+      // Refetch to get correct state
+      await loadProjects()
     }
   }
   
@@ -101,13 +119,22 @@ export function ProjectsModal({ isOpen, onClose }: ProjectsModalProps) {
       return
     }
     
+    // Optimistic update
+    const previousProjects = [...allProjects]
+    setAllProjects(prev => prev.filter(p => p.media_id !== mediaId))
+    setMenuOpen(null)
+    setConfirmDelete(null)
+    
     try {
       await deleteProject(mediaId)
-      setAllProjects(prev => prev.filter(p => p.media_id !== mediaId))
-      setMenuOpen(null)
-      setConfirmDelete(null)
+      // Refetch to ensure sync with backend
+      await loadProjects()
     } catch (error) {
       console.error('Failed to delete project:', error)
+      // Revert optimistic update on failure
+      setAllProjects(previousProjects)
+      // Refetch to get correct state
+      await loadProjects()
     }
   }
   

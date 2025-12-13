@@ -79,12 +79,21 @@ export function ProjectHistory() {
   
   const handleArchive = async (e: React.MouseEvent, mediaId: string) => {
     e.stopPropagation()
+    // Optimistic update
+    const previousProjects = [...projects]
+    setProjects(prev => prev.filter(p => p.media_id !== mediaId))
+    setMenuOpen(null)
+    
     try {
       await archiveProject(mediaId)
-      setProjects(prev => prev.filter(p => p.media_id !== mediaId))
-      setMenuOpen(null)
+      // Refetch to ensure sync with backend
+      fetchProjects()
     } catch (error) {
       console.error('Failed to archive project:', error)
+      // Revert optimistic update on failure
+      setProjects(previousProjects)
+      // Refetch to get correct state
+      fetchProjects()
     }
   }
   
@@ -95,13 +104,22 @@ export function ProjectHistory() {
       return
     }
     
+    // Optimistic update
+    const previousProjects = [...projects]
+    setProjects(prev => prev.filter(p => p.media_id !== mediaId))
+    setMenuOpen(null)
+    setConfirmDelete(null)
+    
     try {
       await deleteProject(mediaId)
-      setProjects(prev => prev.filter(p => p.media_id !== mediaId))
-      setMenuOpen(null)
-      setConfirmDelete(null)
+      // Refetch to ensure sync with backend
+      fetchProjects()
     } catch (error) {
       console.error('Failed to delete project:', error)
+      // Revert optimistic update on failure
+      setProjects(previousProjects)
+      // Refetch to get correct state
+      fetchProjects()
     }
   }
   
@@ -139,12 +157,22 @@ export function ProjectHistory() {
   
   const handleBulkArchive = async () => {
     setBulkAction('archive')
+    // Optimistic update
+    const previousProjects = [...projects]
+    const idsToArchive = Array.from(selectedIds)
+    setProjects(prev => prev.filter(p => !selectedIds.has(p.media_id)))
+    clearSelection()
+    
     try {
-      await archiveProjects(Array.from(selectedIds))
-      setProjects(prev => prev.filter(p => !selectedIds.has(p.media_id)))
-      clearSelection()
+      await archiveProjects(idsToArchive)
+      // Refetch to ensure sync with backend
+      fetchProjects()
     } catch (error) {
       console.error('Failed to archive projects:', error)
+      // Revert optimistic update on failure
+      setProjects(previousProjects)
+      // Refetch to get correct state
+      fetchProjects()
     } finally {
       setBulkAction(null)
     }
@@ -157,12 +185,22 @@ export function ProjectHistory() {
     }
     
     setBulkAction('delete')
+    // Optimistic update
+    const previousProjects = [...projects]
+    const idsToDelete = Array.from(selectedIds)
+    setProjects(prev => prev.filter(p => !selectedIds.has(p.media_id)))
+    clearSelection()
+    
     try {
-      await deleteProjects(Array.from(selectedIds))
-      setProjects(prev => prev.filter(p => !selectedIds.has(p.media_id)))
-      clearSelection()
+      await deleteProjects(idsToDelete)
+      // Refetch to ensure sync with backend
+      fetchProjects()
     } catch (error) {
       console.error('Failed to delete projects:', error)
+      // Revert optimistic update on failure
+      setProjects(previousProjects)
+      // Refetch to get correct state
+      fetchProjects()
     } finally {
       setBulkAction(null)
       setConfirmBulkDelete(false)
