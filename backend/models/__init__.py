@@ -14,6 +14,7 @@ from .schemas import (
     ClipRequest,
     ClipResult,
     ProjectState,
+    ProjectStatusResponse,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "ClipRequest",
     "ClipResult",
     "ProjectState",
+    "ProjectStatusResponse",
 ]
 
 

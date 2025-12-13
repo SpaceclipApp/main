@@ -21,6 +21,7 @@ from models import (
     ClipRequest,
     ClipResult,
     ProjectState,
+    ProjectStatusResponse,
     ProcessingStatus,
     Platform,
 )
@@ -35,6 +36,8 @@ from services import (
 from services.project_storage import project_storage
 from services.auth_service import auth_service
 from api.auth_routes import get_current_user, require_auth
+from repositories.project_repository import clip_repository
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -370,6 +373,10 @@ async def create_clips(
             if seg.start >= request.start and seg.end <= request.end
         ]
     
+    # Get existing clips for duplicate checking
+    media_uuid = UUID(request.media_id)
+    existing_clips = await clip_repository.get_by_media_id(db, media_uuid)
+    
     try:
         results = []
         for platform in request.platforms:
@@ -380,10 +387,14 @@ async def create_clips(
                 platform=platform,
                 captions=captions,
                 title=request.title,
-                color_scheme=request.audiogram_style or "cosmic"
+                color_scheme=request.audiogram_style or "cosmic",
+                check_duplicates=True,
+                existing_clips=existing_clips
             )
             results.append(clip)
-            project.clips.append(clip)
+            # Only append to project.clips if it's a new clip (not a duplicate)
+            if clip.id not in [str(c.id) for c in existing_clips]:
+                project.clips.append(clip)
         
         # Save to database
         await _save_project(db, request.media_id, user_id=user_id)
@@ -429,6 +440,61 @@ async def get_project(
         raise HTTPException(status_code=404, detail="Media not found")
     
     return project
+
+
+@router.get("/projects/{media_id}/status", response_model=ProjectStatusResponse)
+async def get_project_status(
+    media_id: str,
+    db: AsyncSession = Depends(db_session_dependency),
+    current_user: User = Depends(require_auth)
+):
+    """
+    Get lightweight project status for polling.
+    
+    This endpoint is optimized for frequent polling (every 2s) during processing.
+    Returns minimal data needed to update UI progress indicators.
+    
+    State transitions:
+    - PENDING → DOWNLOADING → TRANSCRIBING → ANALYZING → COMPLETE
+    - Any state can transition to ERROR
+    """
+    from datetime import datetime
+    
+    user_id = current_user.id
+    cache_key = _cache_key(user_id, media_id)
+    
+    # Check in-memory cache first (active processing)
+    if cache_key in projects:
+        project = projects[cache_key]
+        return ProjectStatusResponse(
+            media_id=media_id,
+            status=project.status,
+            progress=project.progress,
+            status_message=project.status_message,
+            error=project.error,
+            has_transcription=project.transcription is not None,
+            has_highlights=project.highlights is not None,
+            clip_count=len(project.clips),
+            updated_at=datetime.utcnow(),
+        )
+    
+    # Fall back to database
+    project = await _load_or_create_project(db, media_id, user_id, current_user)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Media not found")
+    
+    return ProjectStatusResponse(
+        media_id=media_id,
+        status=project.status,
+        progress=project.progress,
+        status_message=project.status_message,
+        error=project.error,
+        has_transcription=project.transcription is not None,
+        has_highlights=project.highlights is not None,
+        clip_count=len(project.clips),
+        updated_at=datetime.utcnow(),
+    )
 
 
 @router.get("/download/{clip_id}")
@@ -645,28 +711,58 @@ async def process_full(
             try:
                 project = projects[cache_key]
                 
+                # Set up progress callback for transcription service
+                def update_transcription_progress(progress: float, message: str):
+                    """Callback to update progress during transcription"""
+                    # Transcription is 0.1 - 0.5 of total progress
+                    project.progress = 0.1 + (progress * 0.4)
+                    project.status_message = message
+                
                 # Transcribe
                 project.status = ProcessingStatus.TRANSCRIBING
-                project.progress = 0.2
+                project.progress = 0.1
+                project.status_message = "Starting transcription..."
                 
-                transcription = await transcription_service.transcribe_with_speakers(
-                    media_id=media_id,
-                    file_path=Path(project.media.file_path)
-                )
+                # Set progress callback
+                transcription_service.set_progress_callback(update_transcription_progress)
+                
+                try:
+                    transcription = await transcription_service.transcribe_with_speakers(
+                        media_id=media_id,
+                        file_path=Path(project.media.file_path)
+                    )
+                finally:
+                    # Clear callback after transcription
+                    transcription_service.set_progress_callback(None)
+                
                 project.transcription = transcription
                 project.progress = 0.5
+                project.status_message = "Transcription complete"
                 
                 # Analyze
                 project.status = ProcessingStatus.ANALYZING
+                project.status_message = "Finding highlights with AI..."
+                
                 highlights = await highlight_detector.analyze(
                     media_id=media_id,
                     transcription=transcription
                 )
                 project.highlights = highlights
                 project.progress = 0.8
+                project.status_message = f"Found {len(highlights.highlights)} highlights"
                 
                 # Auto-generate clips for top 3 highlights
                 if auto_clip and highlights.highlights:
+                    project.status_message = "Generating clips..."
+                    
+                    # Get existing clips for duplicate checking
+                    bg_media_uuid = UUID(media_id)
+                    bg_existing_clips = await clip_repository.get_by_media_id(bg_db, bg_media_uuid)
+                    existing_clip_ids = {str(c.id) for c in bg_existing_clips}
+                    
+                    clip_count = 0
+                    total_clips = min(len(highlights.highlights), 3) * 2  # 2 platforms each
+                    
                     for highlight in highlights.highlights[:3]:
                         captions = [
                             seg for seg in transcription.segments
@@ -675,18 +771,28 @@ async def process_full(
                         
                         # Generate for common platforms
                         for platform in [Platform.INSTAGRAM_REELS, Platform.TIKTOK]:
+                            clip_count += 1
+                            project.status_message = f"Generating clip {clip_count}/{total_clips}..."
+                            project.progress = 0.8 + (0.15 * clip_count / total_clips)
+                            
                             clip = await clip_generator.create_clip(
                                 media=project.media,
                                 start=highlight.start,
                                 end=highlight.end,
                                 platform=platform,
                                 captions=captions,
-                                title=highlight.title
+                                title=highlight.title,
+                                check_duplicates=True,
+                                existing_clips=bg_existing_clips
                             )
-                            project.clips.append(clip)
+                            # Only append if it's a new clip (not a duplicate)
+                            if clip.id not in existing_clip_ids:
+                                project.clips.append(clip)
+                                existing_clip_ids.add(clip.id)  # Track to avoid duplicates in same batch
                 
                 project.status = ProcessingStatus.COMPLETE
                 project.progress = 1.0
+                project.status_message = "Processing complete!"
                 
                 # Save to database
                 await _save_project(bg_db, media_id, user_id=bg_user_id)
@@ -694,6 +800,7 @@ async def process_full(
             except Exception as e:
                 project.status = ProcessingStatus.ERROR
                 project.error = str(e)
+                project.status_message = f"Error: {str(e)[:100]}"
                 logger.error(f"Processing error: {e}")
                 await _save_project(bg_db, media_id, user_id=bg_user_id)
     

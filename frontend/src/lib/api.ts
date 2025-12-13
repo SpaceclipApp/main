@@ -187,10 +187,23 @@ export interface ProjectState {
   media: MediaInfo | null
   status: 'pending' | 'downloading' | 'transcribing' | 'analyzing' | 'complete' | 'error'
   progress: number
+  status_message: string | null
   error: string | null
   transcription: TranscriptionResult | null
   highlights: HighlightAnalysis | null
   clips: ClipResult[]
+}
+
+export interface ProjectStatusResponse {
+  media_id: string
+  status: 'pending' | 'downloading' | 'transcribing' | 'analyzing' | 'complete' | 'error'
+  progress: number
+  status_message: string | null
+  error: string | null
+  has_transcription: boolean
+  has_highlights: boolean
+  clip_count: number
+  updated_at: string
 }
 
 export type Platform = 
@@ -277,6 +290,15 @@ export async function createClips(request: {
 
 export async function getProject(mediaId: string): Promise<ProjectState> {
   const response = await api.get(`/projects/${mediaId}`)
+  return response.data
+}
+
+/**
+ * Get lightweight project status for polling during processing.
+ * Optimized for frequent calls (every 2s) with minimal data transfer.
+ */
+export async function getProjectStatus(mediaId: string): Promise<ProjectStatusResponse> {
+  const response = await api.get(`/projects/${mediaId}/status`)
   return response.data
 }
 

@@ -157,6 +157,19 @@ class ClipResult(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ProjectStatusResponse(BaseModel):
+    """Response for project status polling"""
+    media_id: str
+    status: ProcessingStatus
+    progress: float = Field(ge=0, le=1)
+    status_message: Optional[str] = None
+    error: Optional[str] = None
+    has_transcription: bool = False
+    has_highlights: bool = False
+    clip_count: int = 0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ProjectState(BaseModel):
     """Full project state for frontend"""
     # Owner of this project (derived from the project's user)
@@ -168,6 +181,7 @@ class ProjectState(BaseModel):
     media: Optional[MediaInfo] = None
     status: ProcessingStatus = ProcessingStatus.PENDING
     progress: float = 0.0
+    status_message: Optional[str] = None  # Detailed status message for UI
     error: Optional[str] = None
     transcription: Optional[TranscriptionResult] = None
     highlights: Optional[HighlightAnalysis] = None

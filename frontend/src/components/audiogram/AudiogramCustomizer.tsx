@@ -21,44 +21,30 @@ const presetThemes = [
   {
     id: 'cosmic',
     name: 'Cosmic',
-    backgroundColor: '#0f0f23',
-    waveformColor: '#7c3aed',
+    backgroundColor: '#0f0a1f', // Synced with backend
+    waveformColor: '#a855f7', // Synced with backend
     textColor: '#ffffff',
   },
   {
     id: 'neon',
     name: 'Neon',
     backgroundColor: '#000000',
-    waveformColor: '#00ff88',
+    waveformColor: '#00ffff', // Synced with backend
     textColor: '#ffffff',
   },
   {
     id: 'sunset',
     name: 'Sunset',
     backgroundColor: '#1a1a2e',
-    waveformColor: '#e94560',
+    waveformColor: '#ff6b6b', // Synced with backend
     textColor: '#ffffff',
   },
   {
     id: 'minimal',
     name: 'Minimal',
     backgroundColor: '#ffffff',
-    waveformColor: '#000000',
+    waveformColor: '#333333', // Synced with backend
     textColor: '#000000',
-  },
-  {
-    id: 'ocean',
-    name: 'Ocean',
-    backgroundColor: '#0c1445',
-    waveformColor: '#00d4ff',
-    textColor: '#ffffff',
-  },
-  {
-    id: 'forest',
-    name: 'Forest',
-    backgroundColor: '#0d1f0d',
-    waveformColor: '#4ade80',
-    textColor: '#ffffff',
   },
 ]
 
@@ -333,8 +319,8 @@ export function AudiogramCustomizer({ settings, onChange, className }: Audiogram
 export const defaultAudiogramSettings: AudiogramSettings = {
   style: 'waveform',
   colorScheme: 'cosmic',
-  backgroundColor: '#0f0f23',
-  waveformColor: '#7c3aed',
+  backgroundColor: '#0f0a1f', // Synced with backend
+  waveformColor: '#a855f7', // Synced with backend
   textColor: '#ffffff',
   showTitle: true,
   showSpeaker: true,

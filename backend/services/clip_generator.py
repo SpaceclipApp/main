@@ -2,6 +2,7 @@
 Clip and audiogram generation service using FFmpeg
 """
 import asyncio
+import hashlib
 import json
 import logging
 import subprocess
@@ -34,33 +35,78 @@ class ClipGenerator:
         # Audiogram color schemes
         self.color_schemes = {
             'cosmic': {
-                'background': '#0f0f23',
-                'waveform': '#7c3aed',
+                'background': '#0f0a1f',  # Synced with audiogram_generator
+                'waveform': '#a855f7',  # Synced with audiogram_generator
                 'waveform_gradient': '#a855f7',
                 'text': '#ffffff',
                 'accent': '#06b6d4'
             },
             'minimal': {
                 'background': '#ffffff',
-                'waveform': '#000000',
+                'waveform': '#333333',  # Synced with audiogram_generator
                 'text': '#000000',
                 'accent': '#666666'
             },
             'neon': {
                 'background': '#000000',
-                'waveform': '#00ff88',
+                'waveform': '#00ffff',  # Synced with audiogram_generator
                 'waveform_gradient': '#00ffff',
                 'text': '#ffffff',
                 'accent': '#ff00ff'
             },
             'sunset': {
                 'background': '#1a1a2e',
-                'waveform': '#e94560',
+                'waveform': '#ff6b6b',  # Synced with audiogram_generator
                 'waveform_gradient': '#ff6b6b',
                 'text': '#ffffff',
                 'accent': '#ffd93d'
             }
         }
+    
+    def _generate_clip_hash(
+        self,
+        media_id: str,
+        start: float,
+        end: float,
+        platform: Platform,
+        captions_text: Optional[str] = None
+    ) -> str:
+        """
+        Generate a deterministic hash for a clip based on its content.
+        Used to prevent duplicate clips on reanalysis.
+        
+        Args:
+            media_id: Media item ID
+            start: Clip start time
+            end: Clip end time
+            platform: Target platform
+            captions_text: Optional text content for hashing
+            
+        Returns:
+            Deterministic UUID string based on content hash
+        """
+        # Round start/end to 2 decimal places to handle floating point precision
+        start_rounded = round(start, 2)
+        end_rounded = round(end, 2)
+        
+        # Create hash input from clip characteristics
+        hash_input = f"{media_id}:{start_rounded}:{end_rounded}:{platform.value}"
+        if captions_text:
+            # Include first 100 chars of captions text for uniqueness
+            hash_input += f":{captions_text[:100]}"
+        
+        # Generate SHA256 hash
+        hash_bytes = hashlib.sha256(hash_input.encode()).digest()
+        
+        # Convert to UUID (use first 16 bytes)
+        clip_uuid = uuid.UUID(bytes=hash_bytes[:16])
+        return str(clip_uuid)
+    
+    def _get_captions_text(self, captions: Optional[list[TranscriptSegment]]) -> Optional[str]:
+        """Extract text content from captions for hashing"""
+        if not captions:
+            return None
+        return " ".join(seg.text.strip() for seg in captions if seg.text)
     
     async def create_clip(
         self,
@@ -70,15 +116,50 @@ class ClipGenerator:
         platform: Platform,
         captions: Optional[list[TranscriptSegment]] = None,
         title: Optional[str] = None,
-        color_scheme: str = 'cosmic'
+        color_scheme: str = 'cosmic',
+        check_duplicates: bool = True,
+        db: Optional[object] = None,
+        existing_clips: Optional[list] = None
     ) -> ClipResult:
         """
         Create a platform-optimized clip
         
         For video: Extract and resize
         For audio: Create audiogram with waveform visualization
+        
+        Args:
+            check_duplicates: If True, check for existing clips with same content
+            db: Optional database session for duplicate checking
+            existing_clips: Optional list of existing clips to check against
         """
-        clip_id = str(uuid.uuid4())
+        # Generate deterministic clip ID based on content hash
+        captions_text = self._get_captions_text(captions)
+        clip_id = self._generate_clip_hash(
+            media.id,
+            start,
+            end,
+            platform,
+            captions_text
+        )
+        
+        # Check for duplicates if requested
+        if check_duplicates and existing_clips:
+            # Check if a clip with this ID already exists
+            for existing in existing_clips:
+                if str(existing.id) == clip_id:
+                    logger.info(f"Duplicate clip detected, returning existing: {clip_id}")
+                    # Return existing clip as ClipResult
+                    return ClipResult(
+                        id=str(existing.id),
+                        media_id=str(existing.media_id),
+                        platform=Platform(existing.platform),
+                        file_path=existing.file_path,
+                        duration=existing.duration,
+                        width=existing.width,
+                        height=existing.height,
+                        has_captions=existing.has_captions,
+                    )
+        
         spec = PLATFORM_SPECS[platform]
         
         if media.media_type == MediaType.VIDEO:

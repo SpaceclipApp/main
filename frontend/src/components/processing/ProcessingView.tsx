@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Wand2, FileAudio, MessageSquare, Sparkles, AlertCircle, RefreshCw } from 'lucide-react'
 import { useProjectStore } from '@/store/project'
-import { transcribeMedia, analyzeHighlights, getProject } from '@/lib/api'
+import { transcribeMedia, analyzeHighlights, getProject, getProjectStatus } from '@/lib/api'
 import { formatDuration } from '@/lib/utils'
+
+const POLL_INTERVAL = 2000 // 2 seconds
 
 const steps = [
   { id: 'transcribe', label: 'Transcribing audio', icon: FileAudio },
@@ -28,9 +30,11 @@ export function ProcessingView() {
   
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [estimatedTime, setEstimatedTime] = useState<number | null>(null)
   const processingRef = useRef(false)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const startTimeRef = useRef<number>(Date.now())
   
   // Update elapsed time
@@ -51,6 +55,74 @@ export function ProcessingView() {
     }
   }, [media?.duration])
   
+  // Status polling function
+  const pollStatus = useCallback(async () => {
+    if (!media) return
+    
+    try {
+      const status = await getProjectStatus(media.id)
+      
+      // Update progress and message from server
+      setProcessing(status.status_message || `Status: ${status.status}`, status.progress)
+      setStatusMessage(status.status_message)
+      
+      // Update current step based on status
+      if (status.status === 'transcribing') {
+        setCurrentStep(0)
+      } else if (status.status === 'analyzing') {
+        setCurrentStep(1)
+      } else if (status.status === 'complete') {
+        setCurrentStep(2)
+      }
+      
+      // Handle completion
+      if (status.status === 'complete') {
+        // Stop polling
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+        
+        // Fetch full project data
+        const fullProject = await getProject(media.id)
+        if (fullProject.transcription) {
+          setTranscription(fullProject.transcription)
+        }
+        if (fullProject.highlights) {
+          setHighlights(fullProject.highlights)
+        }
+        
+        // Transition after a moment
+        setTimeout(() => {
+          setStep('highlights')
+        }, 1500)
+      }
+      
+      // Handle error
+      if (status.status === 'error') {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+        setError(status.error || 'Processing failed')
+        processingRef.current = false
+      }
+      
+    } catch (err) {
+      console.error('Status polling error:', err)
+      // Don't stop polling on transient errors
+    }
+  }, [media, setProcessing, setTranscription, setHighlights, setStep])
+  
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+      }
+    }
+  }, [])
+  
   useEffect(() => {
     if (!media) return
     
@@ -69,14 +141,25 @@ export function ProcessingView() {
           // Show estimate for long content
           if (media.duration > 600) { // > 10 minutes
             setProcessing('Transcribing long audio (this may take several minutes)...', 0.2)
+            setStatusMessage('Processing long-form content in chunks...')
           }
+          
+          // Start polling for status updates
+          pollingRef.current = setInterval(pollStatus, POLL_INTERVAL)
           
           transcription = await transcribeMedia(media.id)
           setTranscription(transcription)
+          
+          // Stop polling after transcription completes
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+          }
         }
         
         // Step 2: Analyze highlights
         setProcessing('Finding highlights with AI...', 0.6)
+        setStatusMessage('Analyzing content for highlights...')
         setCurrentStep(1)
         
         // Request more highlights for longer content
@@ -91,6 +174,7 @@ export function ProcessingView() {
         
         // Complete
         setProcessing('Complete!', 1)
+        setStatusMessage('Processing complete!')
         setCurrentStep(2)
         
         // Wait a moment before transitioning
@@ -100,6 +184,13 @@ export function ProcessingView() {
         
       } catch (err: any) {
         console.error('Processing error:', err)
+        
+        // Stop polling on error
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+        
         const errorMessage = err.response?.data?.detail || err.message || 'Processing failed'
         
         // Provide more helpful error messages
@@ -108,6 +199,8 @@ export function ProcessingView() {
           displayError = 'Processing took too long. For very long videos (1+ hours), try uploading the audio file directly.'
         } else if (errorMessage.includes('network')) {
           displayError = 'Network error. Please check your connection and try again.'
+        } else if (errorMessage.includes('retry') || errorMessage.includes('attempts')) {
+          displayError = 'Processing failed after multiple attempts. Please try again or use a shorter clip.'
         }
         
         setError(displayError)
@@ -117,7 +210,7 @@ export function ProcessingView() {
     }
     
     process()
-  }, [media?.id])
+  }, [media?.id, pollStatus])
   
   const handleRetry = () => {
     processingRef.current = false
@@ -228,7 +321,7 @@ export function ProcessingView() {
                   </p>
                   {isActive && !error && (
                     <p className="text-star-white/40 text-xs mt-0.5">
-                      {processingStatus}
+                      {statusMessage || processingStatus}
                     </p>
                   )}
                 </div>

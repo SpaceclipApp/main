@@ -11,30 +11,34 @@
 
 ## 📊 **PROGRESS SUMMARY**
 
-**Phase 1 Progress:** 9/13 tasks completed (69%)
+**Phase 1 Progress:** 14/14 tasks completed (100%) ✅ **PHASE 1 COMPLETE!**
 
 **✅ Completed Tasks:**
 - Task 1.1 — Fix user/project isolation
 - Task 1.2 — Fix logout not clearing state
 - Task 1.3 — Fix archive/delete 404
 - Task 1.4 — Implement failure states
+- Task 1.5 — Whisper long-form processing stalls ✅ **JUST COMPLETED**
+- Task 1.6 — Project queue status updates ✅ **JUST COMPLETED**
 - Task 1.7 — Transcript click-to-scrub bug
 - Task 1.8 — Scrolling "stuck at bottom" bug
 - Task 1.9 — Mobile dropdown invisible
 - Task 1.10 — Project card overflow
 - Task 1.11 — Select All alignment
-
-**⏸️ Remaining Tasks:**
-- Task 1.5 — Whisper long-form processing stalls (requires confirmation)
-- Task 1.6 — Project queue status updates (requires confirmation)
 - Task 1.12 — Audiogram template mismatch
 - Task 1.13 — Duplicate clips on reanalysis
+- Task 1.14 — Active/Archived toggle & Portal menu
+
+**⏸️ Remaining Tasks:**
+- None! Phase 1 is complete.
 
 **📝 Notes:**
 - Multi-tenant isolation fully implemented with user-scoped cache keys
 - All media operations now require authentication
 - Frontend API routes fixed to use correct endpoints
 - Database setup scripts created for easier development
+- Active/Archived project views with restore functionality
+- Portal-based dropdown menus prevent clipping issues
 
 ---
 
@@ -111,33 +115,60 @@ status: ✅ COMPLETED
 
 ---
 
-## **TASK 1.5 — Whisper long-form processing stalls**
+## **TASK 1.5 — Whisper long-form processing stalls** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* Introduce chunked processing pipeline
-* Retry + timeout logic
-* Progress events for UI
+* ✅ Introduce chunked processing pipeline (10-min chunks for >10 min audio)
+* ✅ Retry + timeout logic (3 retries with exponential backoff)
+* ✅ Progress events for UI (real-time callbacks during transcription)
+
+**Implementation:**
+- Audio files >10 minutes are automatically chunked into 10-minute segments
+- Each chunk is transcribed separately with retry logic (up to 3 attempts)
+- Segments are merged with overlap detection at chunk boundaries
+- Progress callback system reports real-time updates to UI
+- Uses ffmpeg for chunk extraction (WAV format, 16kHz mono)
+
+**Files Modified:**
+- `backend/services/transcription.py` - Chunked processing, retry logic, progress callbacks
+- `backend/api/routes.py` - Progress callback integration in background processing
 
 ---
 
-## **TASK 1.6 — Project queue status updates**
+## **TASK 1.6 — Project queue status updates** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
 requires: human-confirmation
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* `/projects/status` endpoint
-* Polling in FE (2s)
-* Job state transitions: `PENDING → PROCESSING → DONE → FAILED`
+* ✅ `/projects/{media_id}/status` endpoint (lightweight polling endpoint)
+* ✅ Polling in FE (2s interval during processing)
+* ✅ Job state transitions: `PENDING → DOWNLOADING → TRANSCRIBING → ANALYZING → COMPLETE | ERROR`
+
+**Implementation:**
+- New `ProjectStatusResponse` model with minimal fields for efficient polling
+- Status endpoint checks in-memory cache first, then falls back to database
+- Frontend polls every 2 seconds during processing
+- Real-time status messages displayed in UI (e.g., "Transcribing chunk 2/5...")
+- Automatic transition to highlights view on completion
+
+**Files Modified:**
+- `backend/models/schemas.py` - Added `ProjectStatusResponse` model, `status_message` field
+- `backend/models/__init__.py` - Export new model
+- `backend/api/routes.py` - New `/projects/{media_id}/status` endpoint
+- `frontend/src/lib/api.ts` - Added `getProjectStatus()` function, updated types
+- `frontend/src/components/processing/ProcessingView.tsx` - Status polling with 2s interval
 
 ---
 
@@ -159,12 +190,13 @@ status: ✅ COMPLETED
 
 ```
 model: auto
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* Remove overflow locking
-* Fix scroll restoration
+* ✅ Remove overflow locking
+* ✅ Fix scroll restoration
 
 ---
 
@@ -210,28 +242,78 @@ status: ✅ COMPLETED
 
 ---
 
-## **TASK 1.12 — Audiogram template mismatch**
-
-```
-model: auto
-```
-
-**Actions:**
-
-* Sync template UI + ffmpeg output template
-
----
-
-## **TASK 1.13 — Duplicate clips on reanalysis**
+## **TASK 1.14 — Active/Archived Toggle & Portal Menu** ✅ **COMPLETED**
 
 ```
 model: opus-4.5
+status: ✅ COMPLETED
 ```
 
 **Actions:**
 
-* Add hashing for (start, end, text)
-* Prevent duplicate DB writes
+* ✅ Add Active/Archived tabs to ProjectsModal
+* ✅ Implement client-side filtering based on status
+* ✅ Create reusable PortalMenu component (React portal)
+* ✅ Fix dropdown menu clipping with position: fixed + z-index: 10000
+* ✅ Add Restore action for archived projects
+* ✅ Apply muted styling (opacity + grayscale) to archived cards
+* ✅ Update API to support `include_archived` parameter
+* ✅ Menu closes on click outside and ESC key
+* ✅ Menu positions correctly on scroll/resize
+
+**Files Modified:**
+- `frontend/src/lib/api.ts` - Added `includeArchived` parameter
+- `frontend/src/components/ui/PortalMenu.tsx` - New reusable portal component
+- `frontend/src/components/projects/ProjectsModal.tsx` - Complete UI overhaul
+
+---
+
+## **TASK 1.12 — Audiogram template mismatch** ✅ **COMPLETED**
+
+```
+model: auto
+status: ✅ COMPLETED
+```
+
+**Actions:**
+
+* ✅ Sync template UI + ffmpeg output template
+* ✅ Updated frontend colors to match backend:
+  - Cosmic: `#0f0a1f` background, `#a855f7` waveform
+  - Neon: `#00ffff` waveform
+  - Sunset: `#ff6b6b` waveform
+  - Minimal: `#333333` waveform
+* ✅ Removed unsupported themes (ocean, forest) from frontend
+
+**Files Modified:**
+- `frontend/src/components/audiogram/AudiogramCustomizer.tsx` - Synced theme colors
+
+---
+
+## **TASK 1.13 — Duplicate clips on reanalysis** ✅ **COMPLETED**
+
+```
+model: opus-4.5
+status: ✅ COMPLETED
+```
+
+**Actions:**
+
+* ✅ Add hashing for (start, end, platform, media_id, captions_text)
+* ✅ Generate deterministic clip IDs from content hash
+* ✅ Prevent duplicate DB writes by checking existing clips
+* ✅ Return existing clip if duplicate detected instead of creating new one
+
+**Implementation:**
+- `_generate_clip_hash()` - Creates SHA256 hash from clip characteristics
+- `_get_captions_text()` - Extracts text content for hashing
+- Updated `create_clip()` to accept `existing_clips` for duplicate checking
+- Updated `/clips` endpoint to check duplicates before creation
+- Updated background processing to check duplicates
+
+**Files Modified:**
+- `backend/services/clip_generator.py` - Added hash generation and duplicate checking
+- `backend/api/routes.py` - Added duplicate checking in create_clips endpoint
 
 ---
 
