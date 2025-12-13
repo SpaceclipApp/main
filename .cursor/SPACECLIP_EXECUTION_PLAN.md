@@ -38,12 +38,21 @@
 - Phase 3 — Paywall + Invites (requires confirmation)
 
 **📝 Notes:**
-- Multi-tenant isolation fully implemented with user-scoped cache keys
-- All media operations now require authentication
+- Multi-tenant isolation fully implemented with user-scoped cache keys (`user_id:media_id`)
+- All media operations now require authentication (`require_auth` dependency)
 - Frontend API routes fixed to use correct endpoints
-- Database setup scripts created for easier development
+- Database setup scripts created for easier development (`scripts/setup-db.sh`, `scripts/dev.sh`, `scripts/kill.sh`)
 - Active/Archived project views with restore functionality
 - Portal-based dropdown menus prevent clipping issues
+- Long-form audio processing with chunked transcription (10-min chunks)
+- Real-time status polling for processing jobs (2s interval)
+- Content-based duplicate detection for clips (SHA256 hashing)
+- Drag handles for manual clip boundary adjustment with word-boundary snapping
+
+**⚠️ Missing Documentation/Comments:**
+- Some early tasks (1.1-1.4, 1.7-1.11) lack detailed file modification lists (completed in earlier sessions)
+- Regression tests mentioned in Task 1.1 not yet implemented
+- Toast feedback for archive/delete operations (Task 1.3) not yet implemented
 
 ---
 
@@ -69,7 +78,23 @@ status: ✅ COMPLETED
 
 * ✅ Ensure all project queries require `user_id`
 * ✅ Patch frontend stores to stop leaking previous user's state
-* ⏸️ Add regression tests (not yet implemented)
+* ⏸️ Add regression tests (not yet implemented - TODO)
+
+**Implementation:**
+- Changed cache key format from `media_id` to `user_id:media_id` for multi-tenancy
+- Updated `_load_or_create_project()` to enforce ownership checks
+- Added `user_id` and `project_id` fields to `ProjectState` schema
+- All upload/process/delete endpoints now require `require_auth` dependency
+- Frontend project store clears on logout to prevent state leakage
+
+**Files Modified:**
+- `backend/api/routes.py` - Cache key changes, ownership enforcement, `require_auth` on all endpoints
+- `backend/models/schemas.py` - Added `user_id` and `project_id` to `ProjectState`
+- `backend/services/project_storage.py` - User-scoped queries, ownership verification
+- `frontend/src/store/project.ts` - Added `clearAll()` method for logout
+- `frontend/src/components/layout/Header.tsx` - Calls `clearAll()` on logout
+
+**Note:** Detailed file-by-file changes from earlier sessions not fully documented here.
 
 ---
 
@@ -84,6 +109,15 @@ status: ✅ COMPLETED
 
 * ✅ Clear all auth + project stores on logout
 * ✅ Add redirect
+
+**Implementation:**
+- Added `clearAll()` method to project store that clears all state including recent projects
+- Updated logout handler to call `clearAll()` before redirecting
+- Ensures no cross-user state leakage on logout/login
+
+**Files Modified:**
+- `frontend/src/store/project.ts` - Added `clearAll()` method
+- `frontend/src/components/layout/Header.tsx` - Updated `handleLogout` to clear state
 
 ---
 
@@ -100,7 +134,21 @@ status: ✅ COMPLETED
 * ✅ Validate backend route + verb
 * ✅ Patch controller + repo
 * ✅ Patch frontend call
-* ⏸️ Add toast feedback (not yet implemented)
+* ⏸️ Add toast feedback (not yet implemented - TODO)
+
+**Implementation:**
+- Fixed route paths: `/projects/{media_id}/archive` (POST) and `/projects/{media_id}` (DELETE)
+- Updated repository methods to accept `user_id` for ownership verification
+- Fixed frontend API calls to use correct endpoints and HTTP methods
+- Archive/unarchive operations now properly update media status in database
+
+**Files Modified:**
+- `backend/api/routes.py` - Fixed route definitions, added `require_auth`, user_id checks
+- `backend/services/project_storage.py` - Updated `delete_project_async`, `archive_media`, `unarchive_media` with user_id
+- `frontend/src/lib/api.ts` - Fixed `deleteProject`, `archiveProject`, `unarchiveProject` functions
+- `frontend/src/components/projects/ProjectsModal.tsx` - Updated action handlers
+
+**Note:** Toast notifications for success/error feedback not yet implemented.
 
 ---
 
@@ -117,6 +165,16 @@ status: ✅ COMPLETED
 * ✅ Transcription error UI (already existed)
 * ✅ Clip-generation error UI (already existed)
 * ✅ Backend sends `status: ERROR` (implemented)
+
+**Implementation:**
+- Backend now sets `ProcessingStatus.ERROR` and `error` message on failures
+- Frontend error handling displays user-friendly messages
+- Processing view shows error state with retry option
+- Error messages include context (timeout, network, etc.)
+
+**Files Modified:**
+- `backend/api/routes.py` - Error handling in processing endpoints sets ERROR status
+- `frontend/src/components/processing/ProcessingView.tsx` - Error display and retry logic
 
 ---
 
@@ -189,6 +247,17 @@ status: ✅ COMPLETED
 * ✅ Fix timestamp mapping
 * ✅ Update player seek logic
 
+**Implementation:**
+- Fixed transcript segment click handler to correctly map to media time
+- Updated MediaPlayer seek logic to handle transcript clicks
+- Ensures accurate scrubbing when clicking transcript segments
+
+**Files Modified:**
+- `frontend/src/components/player/MediaPlayer.tsx` - Fixed `jumpToSegment()` method
+- `frontend/src/components/highlights/TranscriptViewer.tsx` - Fixed click handler timestamp mapping
+
+**Note:** Specific implementation details from earlier session not fully documented.
+
 ---
 
 ## **TASK 1.8 — Scrolling “stuck at bottom” bug**
@@ -203,6 +272,16 @@ status: ✅ COMPLETED
 * ✅ Remove overflow locking
 * ✅ Fix scroll restoration
 
+**Implementation:**
+- Removed CSS that was locking scroll position at bottom
+- Fixed scroll restoration logic to preserve user's scroll position
+- Prevents automatic scrolling to bottom on content updates
+
+**Files Modified:**
+- `frontend/src/components/highlights/TranscriptViewer.tsx` - Removed overflow locking, fixed scroll behavior
+
+**Note:** Specific CSS/implementation details from earlier session not fully documented.
+
 ---
 
 ## **TASK 1.9 — Mobile dropdown invisible** ✅ **COMPLETED**
@@ -216,6 +295,17 @@ status: ✅ COMPLETED
 
 * ✅ Raise z-index
 * ✅ Fix pointer-events
+
+**Implementation:**
+- Increased z-index for dropdown menus to ensure visibility above other elements
+- Fixed pointer-events CSS to allow proper interaction on mobile devices
+- Ensures dropdowns are clickable and visible on touch devices
+
+**Files Modified:**
+- `frontend/src/components/layout/Header.tsx` - Increased z-index for user menu
+- Various dropdown components - Fixed pointer-events and z-index
+
+**Note:** Specific file changes from earlier session not fully documented.
 
 ---
 
@@ -232,6 +322,18 @@ status: ✅ COMPLETED
 * ✅ Force wrapping
 * ✅ Remove horizontal scroll
 
+**Implementation:**
+- Added text truncation for long project titles
+- Applied CSS to force text wrapping within card boundaries
+- Removed horizontal scroll from project list containers
+- Ensures cards fit within layout without overflow
+
+**Files Modified:**
+- `frontend/src/components/projects/ProjectHistory.tsx` - Fixed card overflow and wrapping
+- `frontend/src/components/projects/ProjectsModal.tsx` - Fixed modal container overflow
+
+**Note:** Specific CSS changes from earlier session not fully documented.
+
 ---
 
 ## **TASK 1.11 — Select All alignment** ✅ **COMPLETED**
@@ -244,6 +346,16 @@ status: ✅ COMPLETED
 **Actions:**
 
 * ✅ Align bulk-action bar with card container
+
+**Implementation:**
+- Fixed alignment of bulk action bar (Select All, Delete, Archive) with project card container
+- Ensures consistent spacing and alignment across the UI
+- Improved visual consistency in project list views
+
+**Files Modified:**
+- `frontend/src/components/projects/ProjectHistory.tsx` - Fixed bulk action bar alignment
+
+**Note:** Specific CSS/alignment changes from earlier session not fully documented.
 
 ---
 
@@ -356,9 +468,10 @@ status: ✅ COMPLETED
 - Added `POST /projects/{media_id}/clip-range` endpoint for saving
 
 **Files Created/Modified:**
-- `frontend/src/components/player/ClipRangeEditor.tsx` (NEW)
-- `frontend/src/components/export/ExportView.tsx` - Integration
-- `backend/api/routes.py` - New endpoint
+- `frontend/src/components/player/ClipRangeEditor.tsx` (NEW) - Complete drag handle implementation
+- `frontend/src/components/export/ExportView.tsx` - Integrated ClipRangeEditor, added range commit handler
+- `backend/api/routes.py` - Added `POST /projects/{media_id}/clip-range` endpoint
+- `frontend/src/lib/api.ts` - Added `updateClipRange()` API function
 
 ---
 
@@ -389,9 +502,10 @@ status: ✅ COMPLETED
 - Frontend updates captions when clip boundaries change
 
 **Files Modified:**
-- `backend/api/routes.py` - Two new endpoints
-- `frontend/src/lib/api.ts` - API functions for captions
-- `frontend/src/components/export/ExportView.tsx` - Caption updates
+- `backend/api/routes.py` - Added `GET /projects/{media_id}/captions` and `POST /projects/{media_id}/clip-range` endpoints
+- `frontend/src/lib/api.ts` - Added `getClipCaptions()` and `updateClipRange()` functions, type definitions
+- `frontend/src/components/export/ExportView.tsx` - Added caption update handling, displays caption count
+- `frontend/src/components/player/ClipRangeEditor.tsx` - Added `onRangeCommit` callback for saving changes
 
 ---
 
@@ -626,6 +740,64 @@ Cursor will:
 ### ✔ Not alter billing/invite logic without approval
 
 In other words: it behaves.
+
+---
+
+# 📋 **COMPREHENSIVE IMPLEMENTATION SUMMARY**
+
+## **Phase 1: Core Stability (14/14 tasks) ✅**
+
+### **Architecture & Security**
+- **Multi-tenant isolation**: All cache keys use `user_id:media_id` format
+- **Authentication**: All media/project endpoints require `require_auth` dependency
+- **State management**: Frontend stores properly clear on logout to prevent cross-user leakage
+- **Database**: User-scoped queries throughout, ownership verification on all operations
+
+### **Processing & Performance**
+- **Long-form transcription**: Chunked processing (10-min segments) with retry logic (3 attempts, exponential backoff)
+- **Status polling**: Lightweight `/status` endpoint with 2s polling interval
+- **Progress tracking**: Real-time callbacks during transcription with detailed status messages
+- **Duplicate prevention**: Content-based hashing (SHA256) prevents duplicate clips on reanalysis
+
+### **UI/UX Improvements**
+- **Archive system**: Active/Archived toggle with restore functionality
+- **Portal menus**: React portal-based dropdowns prevent clipping issues
+- **Template sync**: Frontend audiogram colors match backend ffmpeg output
+- **Bug fixes**: Transcript scrubbing, scroll behavior, mobile dropdowns, card overflow, alignment
+
+## **Phase 2: Manual Clip Controls (2/2 tasks) ✅**
+
+### **Clip Editing**
+- **Drag handles**: Visual timeline with draggable start/end handles
+- **Word-boundary snapping**: Automatically snaps to transcript segment boundaries (0.5s threshold)
+- **Duration constraints**: 5s minimum, 180s maximum with visual feedback
+- **Touch support**: Full mobile/touch device support
+
+### **Caption Regeneration**
+- **Automatic updates**: Captions regenerate when clip boundaries change
+- **Timestamp adjustment**: Converts absolute timestamps to clip-relative timestamps
+- **Segment filtering**: Only includes segments overlapping the clip range
+- **API endpoints**: `GET /captions` and `POST /clip-range` for caption management
+
+## **Key Technical Decisions**
+
+1. **Cache Strategy**: In-memory cache with database persistence, user-scoped keys prevent cross-contamination
+2. **Processing Strategy**: Chunked transcription for long-form content, background tasks with progress callbacks
+3. **Duplicate Detection**: Deterministic UUIDs from content hash, checked before DB write
+4. **UI Architecture**: React portals for dropdowns, Zustand for state management, Framer Motion for animations
+
+## **Development Tools Created**
+
+- `scripts/setup-db.sh` - Automated PostgreSQL setup and migrations
+- `scripts/dev.sh` - Enhanced startup with dependency checks
+- `scripts/kill.sh` - Clean process termination
+- `QUICKSTART.md` - Streamlined development guide
+
+## **Known Limitations / TODOs**
+
+- ⏸️ Regression tests for user isolation (Task 1.1)
+- ⏸️ Toast notifications for archive/delete operations (Task 1.3)
+- ⏸️ Some early tasks lack detailed file modification documentation (completed in earlier sessions)
 
 ---
 
